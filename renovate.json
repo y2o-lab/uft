@@ -4,11 +4,36 @@
   "timezone": "Asia/Tokyo",
   "schedule": ["* 8-11 * * 6"],
   "enabledManagers": ["npm"],
+  "baseBranches": ["main"],
   "rangeStrategy": "pin",
-  "groupName": "all dependencies",
-  "groupSlug": "all-dependencies",
-  "separateMajorMinor": false,
   "prCreation": "immediate",
-  "prConcurrentLimit": 1,
-  "branchConcurrentLimit": 1
+  "prConcurrentLimit": 3,
+  "branchConcurrentLimit": 3,
+  "packageRules": [
+    {
+      "description": "Automerge stable non-major updates after all CI checks pass",
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchCurrentVersion": "!/^0/",
+      "groupName": "non-major dependencies",
+      "groupSlug": "non-major-dependencies",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true,
+      "ignoreTests": false
+    },
+    {
+      "description": "Keep major updates separate for manual review",
+      "matchUpdateTypes": ["major"],
+      "groupName": "major dependencies",
+      "groupSlug": "major-dependencies",
+      "automerge": false
+    },
+    {
+      "description": "Keep pre-1.0 updates separate for manual review",
+      "matchCurrentVersion": "/^0/",
+      "groupName": "pre-1.0 dependencies",
+      "groupSlug": "pre-1-0-dependencies",
+      "automerge": false
+    }
+  ]
 }
