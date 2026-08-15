@@ -29,3 +29,11 @@ UFT は OPFS 上の SQLite を使い、対応しない環境では IndexedDB の
 ZIP は文書、画像、SVG、図表 JSON を含む再編集可能なバックアップです。復元時はパス走査・サイズ・チェックサム・マニフェストを検証し、既存データを上書きせず新しいワークスペースとして開きます。単体 `.md` のダウンロードでは画像が相対参照になるため、アセットも渡す場合は ZIP を使います。
 
 `public/_headers` は SQLite WASM の OPFS モードに必要な cross-origin isolation と静的セキュリティヘッダーを、`public/_redirects` は SPA フォールバックを提供します。Pages Functions や外部データストアは不要です。
+
+## 文書を Markdown に変換
+
+最初に表示される `/` はツールランチャーです。Markdown の編集は `/workspace`、文書変換は `/convert-to-markdown`（またはワークスペースのコマンドパレットの「文書を Markdown として追加」）から直接開けます。ランチャーではツール名・機能で絞り込め、どの画面からでも <kbd>⌘/Ctrl + K</kbd> でページを離れずに Spotlight 風の検索ランチャーを開けます。<kbd>↑↓</kbd> と <kbd>Enter</kbd> で選択・起動、<kbd>Esc</kbd> で閉じられます。ワークスペースのコマンドパレットは <kbd>⌘/Ctrl + Shift + K</kbd> です。新しいローカルツールもこのランチャーへ追加できます。
+
+変換画面では、Word（`.doc`, `.docx`, `.docm`）、PowerPoint、Excel、OpenDocument、RTF、EPUB、CSV、PDF を複数選択して Markdown に変換できます。変換は `@firecrawl/anydoc-wasm` を専用 Worker で実行するため、ファイル内容はブラウザ外へ送信されず、変換中も編集画面をブロックしません。
+
+作成先は `imports/` です。同名のファイルは `-2`、`-3` のように連番を付け、元の文書ファイルは保存しません。PDF は埋め込みテキストを持つものだけに対応し、スキャン画像のみの PDF は OCR せず個別の変換エラーとして表示します。パスワード保護・破損・未対応のファイルも、ほかの成功した変換結果には影響しません。埋め込み画像などのバイナリを `assets/` へ展開する機能は現時点では提供しません。

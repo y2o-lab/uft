@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("edits are persisted after reload", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/workspace");
   const editor = page.locator(".cm-content");
   await expect(editor).toBeVisible();
   await editor.click();
@@ -14,7 +14,7 @@ test("edits are persisted after reload", async ({ page }) => {
 });
 
 test("command templates remain separate Markdown blocks", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/workspace");
   const editor = page.locator(".cm-content");
   await expect(editor).toBeVisible();
   await editor.click();
@@ -29,7 +29,7 @@ test("command templates remain separate Markdown blocks", async ({ page }) => {
 });
 
 test("long documents scroll inside the editor and preview panes", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/workspace");
   const editor = page.locator(".cm-content");
   await expect(editor).toBeVisible();
   await editor.click();
@@ -77,7 +77,7 @@ test("sidebar scrolls independently from the fixed application frame", async ({
     void dialog.accept(`scroll-test-${documentNumber}`);
   });
 
-  await page.goto("/");
+  await page.goto("/workspace");
   const newDocument = page.getByRole("button", { name: "新しい文書" });
   for (let index = 0; index < 36; index += 1) await newDocument.click();
 
