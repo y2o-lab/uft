@@ -1,0 +1,14 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "Asia/Tokyo",
+  "schedule": ["* 8-11 * * 6"],
+  "enabledManagers": ["npm"],
+  "rangeStrategy": "pin",
+  "groupName": "all dependencies",
+  "groupSlug": "all-dependencies",
+  "separateMajorMinor": false,
+  "prCreation": "immediate",
+  "prConcurrentLimit": 1,
+  "branchConcurrentLimit": 1
+}

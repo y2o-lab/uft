@@ -3,6 +3,8 @@ import { defaultWorkspace } from "./workspace";
 
 describe("defaultWorkspace", () => {
   it("starts with a Markdown document in docs", () => {
-    expect(defaultWorkspace.files[0]?.path).toBe("docs/overview.md");
+    expect(
+      defaultWorkspace.entries.find((entry) => entry.id === "overview")?.path,
+    ).toBe("docs/overview.md");
   });
 });

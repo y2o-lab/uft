@@ -1,0 +1,50 @@
+import { describe, expect, it } from "vitest";
+import {
+  type Asset,
+  cloneWorkspace,
+  defaultWorkspace,
+} from "../domain/workspace";
+import {
+  exportWorkspace,
+  importWorkspace,
+  MAX_ZIP_ENTRIES,
+} from "./workspace-zip";
+
+describe("ZIP import guardrails", () => {
+  it("has a bounded entry limit", () =>
+    expect(MAX_ZIP_ENTRIES).toBeGreaterThan(0));
+
+  it("round-trips Markdown and assets through a validated manifest", async () => {
+    const workspace = cloneWorkspace(defaultWorkspace);
+    const asset: Asset = {
+      id: "image",
+      workspaceId: workspace.id,
+      path: "assets/pixel.png",
+      mediaType: "image/png",
+      byteSize: 3,
+      checksum: "ignored",
+      createdAt: workspace.createdAt,
+    };
+    workspace.assets.push(asset);
+    const bytes = new Uint8Array([1, 2, 3]).buffer;
+    const repository = {
+      mode: "indexeddb" as const,
+      open: async () => workspace,
+      listWorkspaces: async () => [],
+      save: async () => undefined,
+      putAsset: async () => undefined,
+      getAsset: async (id: string) => (id === asset.id ? bytes : null),
+      deleteAsset: async () => undefined,
+    };
+    const restored = await importWorkspace(
+      await exportWorkspace(workspace, repository),
+    );
+    expect(Object.values(restored.workspace.documents)[0]?.content).toContain(
+      "Overview",
+    );
+    expect(restored.workspace.assets[0]?.path).toBe("assets/pixel.png");
+    expect(
+      restored.binaries.get(restored.workspace.assets[0]?.id ?? ""),
+    ).toBeDefined();
+  });
+});

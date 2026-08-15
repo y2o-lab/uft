@@ -2,7 +2,6 @@
   "$schema": "https://biomejs.dev/schemas/2.5.8/schema.json",
   "files": {
     "includes": [
-      "src/App.svelte",
       "src/main.tsx",
       "src/lib/**/*.ts",
       "vite.config.ts",
