@@ -28,6 +28,103 @@ test("command templates remain separate Markdown blocks", async ({ page }) => {
   await expect(page.locator(".preview-content table")).toBeVisible();
 });
 
+test("compares the current Markdown document with another local document", async ({
+  page,
+}) => {
+  page.on("dialog", (dialog) => void dialog.accept("baseline.md"));
+
+  await page.goto("/workspace");
+  const editor = page.locator(".cm-content");
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText("# Plan\n\nShared\n\n- Keep\n- Added");
+
+  await page.getByRole("button", { name: "新しい文書" }).click();
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText("# Plan\n\nShared\n\n- Keep\n- Removed");
+
+  await page.getByRole("button", { name: /overview\.md/ }).click();
+  await page.getByRole("button", { name: "Diff" }).click();
+
+  await expect(page.getByLabel("Markdown comparison")).toBeVisible();
+  await expect(page.locator(".diff-line.added")).toContainText("- Added");
+  await expect(page.locator(".diff-line.removed")).toContainText("- Removed");
+  await expect(page.locator(".diff-summary")).toContainText("+1 additions");
+  await expect(page.locator(".diff-summary")).toContainText("−1 removals");
+});
+
+test("searches comparison documents before switching the diff target", async ({
+  page,
+}) => {
+  const names = ["baseline.md", "release-notes.md"];
+  page.on("dialog", (dialog) => void dialog.accept(names.shift()));
+
+  await page.goto("/workspace");
+  await page.getByRole("button", { name: "新しい文書" }).click();
+  await page.getByRole("button", { name: "新しい文書" }).click();
+  await page.getByRole("button", { name: /overview\.md/ }).click();
+  await page.getByRole("button", { name: "Diff" }).click();
+
+  const targetPicker = page.getByRole("button", {
+    name: /比較元:/,
+  });
+  await targetPicker.click();
+  const search = page.getByRole("textbox", { name: "比較元を検索" });
+  await search.fill("release");
+  await page.getByRole("option", { name: "release-notes.md" }).click();
+
+  await expect(targetPicker).toContainText("release-notes.md");
+  await expect(search).toBeHidden();
+});
+
+test("selects a searched comparison document with the keyboard", async ({
+  page,
+}) => {
+  const names = ["baseline.md", "release-notes.md"];
+  page.on("dialog", (dialog) => void dialog.accept(names.shift()));
+
+  await page.goto("/workspace");
+  await page.getByRole("button", { name: "新しい文書" }).click();
+  await page.getByRole("button", { name: "新しい文書" }).click();
+  await page.getByRole("button", { name: /overview\.md/ }).click();
+  await page.getByRole("button", { name: "Diff" }).click();
+  await page.getByRole("button", { name: /比較元:/ }).click();
+
+  const search = page.getByRole("textbox", { name: "比較元を検索" });
+  await search.press("ArrowDown");
+  await search.press("Enter");
+
+  await expect(page.getByRole("button", { name: /比較元:/ })).toContainText(
+    "release-notes.md",
+  );
+  await expect(search).toBeHidden();
+});
+
+test("switching Markdown documents replaces the source editor content", async ({
+  page,
+}) => {
+  page.on("dialog", (dialog) => void dialog.accept("second.md"));
+
+  await page.goto("/workspace");
+  const editor = page.locator(".cm-content");
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText("# First document");
+
+  await page.getByRole("button", { name: "新しい文書" }).click();
+  await expect(editor).toContainText("# Untitled");
+  await editor.click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText("# Second document");
+
+  await page.getByRole("button", { name: /overview\.md/ }).click();
+  await expect(editor).toContainText("# First document");
+});
+
 test("long documents scroll inside the editor and preview panes", async ({ page }) => {
   await page.goto("/workspace");
   const editor = page.locator(".cm-content");
