@@ -3,6 +3,7 @@ import { onMount } from "svelte";
 import CodeMirrorEditor from "./lib/components/CodeMirrorEditor.svelte";
 import ConfirmDialog from "./lib/components/ConfirmDialog.svelte";
 import MarkdownPreview from "./lib/components/MarkdownPreview.svelte";
+import MarkdownDiff from "./lib/components/MarkdownDiff.svelte";
 import Toast from "./lib/components/Toast.svelte";
 import { activeEntries, orderedChildren } from "./lib/domain/tree";
 import {
@@ -41,7 +42,7 @@ import {
 } from "./lib/import/document-import";
 import type { Component } from "svelte";
 
-type Mode = "source" | "split" | "preview";
+type Mode = "source" | "split" | "preview" | "diff";
 type AppPage = "launcher" | "workspace" | "document-import";
 type LauncherTool = {
   id: string;
@@ -61,6 +62,12 @@ let workspace = $state<Workspace | null>(null);
 let repository = $state<WorkspaceRepository | null>(null);
 let activeEntryId = $state<string | null>(null);
 let mode = $state<Mode>("split");
+let compareEntryId = $state("");
+let comparisonPickerOpen = $state(false);
+let comparisonQuery = $state("");
+let comparisonSearchInput = $state<HTMLInputElement>();
+let comparisonPickerButton = $state<HTMLButtonElement>();
+let comparisonActiveIndex = $state(0);
 let status = $state("ローカルワークスペースを準備中");
 let statusTone = $state<"info" | "error">("info");
 let toast = $state("");
@@ -107,6 +114,23 @@ let activeDiagram = $derived(
   workspace && activeEntry?.kind === "diagram"
     ? workspace.diagrams[activeEntry.id] ?? null
     : null,
+);
+let markdownEntries = $derived(
+  workspace ? activeEntries(workspace).filter((entry) => entry.kind === "markdown") : [],
+);
+let comparisonEntries = $derived(
+  markdownEntries.filter((entry) => entry.id !== activeEntry?.id),
+);
+let compareEntry = $derived(
+  comparisonEntries.find((entry) => entry.id === compareEntryId) ?? null,
+);
+let compareDocument = $derived(
+  workspace && compareEntry ? workspace.documents[compareEntry.id] ?? null : null,
+);
+let matchingComparisonEntries = $derived(
+  comparisonEntries.filter((entry) =>
+    entry.path.toLocaleLowerCase().includes(comparisonQuery.trim().toLocaleLowerCase()),
+  ),
 );
 let visibleEntries = $derived(workspace ? flattenEntries(workspace) : []);
 let documentTitle = $derived(activeEntry?.path ?? "ワークスペース");
@@ -158,6 +182,7 @@ const commands: Array<{ name: string; action: () => void }> = [
   { name: "文書を Markdown として追加", action: () => navigateToDocumentImport() },
   { name: "ZIP を復元", action: () => importInput?.click() },
   { name: "開いている Markdown をダウンロード", action: downloadMarkdown },
+  { name: "別の Markdown 文書と比較", action: openDiff },
   { name: "プレビューを印刷 / PDF 保存", action: printDocument },
 ];
 
@@ -180,6 +205,10 @@ onMount(() => {
       if (!isLauncher) paletteOpen = true;
     }
     if (event.key === "Escape") {
+      if (comparisonPickerOpen) {
+        comparisonPickerOpen = false;
+        return;
+      }
       if (launcherOpen) {
         closeLauncher();
         return;
@@ -204,6 +233,11 @@ $effect(() => {
   void import("./lib/components/DiagramEditor.svelte").then((module) => {
     DiagramEditor = module.default;
   });
+});
+
+$effect(() => {
+  if (!comparisonEntries.some((entry) => entry.id === compareEntryId))
+    compareEntryId = comparisonEntries[0]?.id ?? "";
 });
 
   async function initialize(): Promise<void> {
@@ -422,6 +456,55 @@ function editDocument(content: string): void {
   if (!workspace || !activeEntry || activeEntry.kind !== "markdown") return;
   updateDocument(workspace, activeEntry.id, content);
   scheduleSave();
+}
+function openDiff(): void {
+  if (!comparisonEntries.length) {
+    notify(new Error("比較するには、もう1つ Markdown 文書を作成してください。"));
+    return;
+  }
+  if (!comparisonEntries.some((entry) => entry.id === compareEntryId))
+    compareEntryId = comparisonEntries[0].id;
+  mode = "diff";
+}
+function toggleComparisonPicker(): void {
+  comparisonPickerOpen = !comparisonPickerOpen;
+  comparisonQuery = "";
+  comparisonActiveIndex = Math.max(
+    0,
+    comparisonEntries.findIndex((entry) => entry.id === compareEntryId),
+  );
+  if (comparisonPickerOpen)
+    window.setTimeout(() => comparisonSearchInput?.focus(), 0);
+}
+function chooseComparisonEntry(entryId: string): void {
+  compareEntryId = entryId;
+  comparisonPickerOpen = false;
+  comparisonQuery = "";
+}
+function handleComparisonSearchKeydown(event: KeyboardEvent): void {
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    comparisonActiveIndex = Math.min(
+      comparisonActiveIndex + 1,
+      matchingComparisonEntries.length - 1,
+    );
+    return;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    comparisonActiveIndex = Math.max(comparisonActiveIndex - 1, 0);
+    return;
+  }
+  if (event.key === "Enter") {
+    event.preventDefault();
+    const selected = matchingComparisonEntries[comparisonActiveIndex];
+    if (selected) chooseComparisonEntry(selected.id);
+    return;
+  }
+  if (event.key === "Escape") {
+    comparisonPickerOpen = false;
+    comparisonPickerButton?.focus();
+  }
 }
 function scheduleSave(): void {
   if (saveTimer) clearTimeout(saveTimer);
@@ -787,12 +870,23 @@ function openImportedDocument(): void {
       <div class="sidebar-actions"><button onclick={rename} disabled={!activeEntry}>名前変更</button><button onclick={move} disabled={!activeEntry}>移動</button><button onclick={() => deleteTarget = activeEntry} disabled={!activeEntry}>削除</button></div>
     </aside>
     <section class="main-pane">
-      <div class="editor-toolbar"><div class="mode-switch"><button class:selected={mode === "source"} onclick={() => mode = "source"}>Source</button><button class:selected={mode === "split"} onclick={() => mode = "split"}>Split</button><button class:selected={mode === "preview"} onclick={() => mode = "preview"}>Preview</button></div><span class:error-text={statusTone === "error"} class="status"><span class="local-dot"></span>{status}</span></div>
+      <div class="editor-toolbar"><div class="mode-switch"><button class:selected={mode === "source"} onclick={() => mode = "source"}>Source</button><button class:selected={mode === "split"} onclick={() => mode = "split"}>Split</button><button class:selected={mode === "preview"} onclick={() => mode = "preview"}>Preview</button><button class:selected={mode === "diff"} onclick={openDiff}>Diff</button></div>{#if mode === "diff" && comparisonEntries.length}<div class="diff-selector"><span>比較元</span><button bind:this={comparisonPickerButton} type="button" class="diff-selector-trigger" aria-label={`比較元: ${compareEntry?.path ?? "未選択"}`} aria-haspopup="listbox" aria-expanded={comparisonPickerOpen} onclick={toggleComparisonPicker}>{compareEntry?.path ?? "文書を選択"}<span aria-hidden="true">⌄</span></button>{#if comparisonPickerOpen}<div class="diff-picker-popover"><input bind:this={comparisonSearchInput} bind:value={comparisonQuery} aria-label="比較元を検索" aria-controls="comparison-picker-results" aria-activedescendant={matchingComparisonEntries[comparisonActiveIndex] ? `comparison-option-${matchingComparisonEntries[comparisonActiveIndex].id}` : undefined} placeholder="文書を検索…" autocomplete="off" oninput={() => comparisonActiveIndex = 0} onkeydown={handleComparisonSearchKeydown} /><div id="comparison-picker-results" class="diff-picker-results" role="listbox" aria-label="比較元の候補">{#each matchingComparisonEntries as entry, index (entry.id)}<button id={`comparison-option-${entry.id}`} type="button" role="option" class:active={index === comparisonActiveIndex} aria-selected={entry.id === compareEntryId} onmouseenter={() => comparisonActiveIndex = index} onclick={() => chooseComparisonEntry(entry.id)}>{entry.path}</button>{:else}<p>一致する Markdown 文書はありません。</p>{/each}</div></div>{/if}</div>{/if}<span class:error-text={statusTone === "error"} class="status"><span class="local-dot"></span>{status}</span></div>
       {#if activeEntry?.kind === "markdown" && activeDocument}
-        <div class:source-only={mode === "source"} class:preview-only={mode === "preview"} class="document-area">
-          {#if mode !== "preview"}<section class="source-pane"><CodeMirrorEditor value={activeDocument.content} onChange={editDocument} onReady={(fn) => insertIntoEditor = fn} /></section>{/if}
-          {#if mode !== "source"}<section class="preview-pane"><MarkdownPreview markdown={activeDocument.content} {assetUrls} documentPath={activeEntry.path} /></section>{/if}
-        </div>
+        {#if mode === "diff"}
+          <section class="diff-pane" aria-label="Markdown comparison">
+            {#if compareEntry && compareDocument}
+              <header class="diff-heading"><span>{compareEntry.path}</span><span aria-hidden="true">→</span><strong>{activeEntry.path}</strong></header>
+              <MarkdownDiff before={compareDocument.content} after={activeDocument.content} />
+            {:else}
+              <p class="diff-empty">比較する Markdown 文書を選択してください。</p>
+            {/if}
+          </section>
+        {:else}
+          <div class:source-only={mode === "source"} class:preview-only={mode === "preview"} class="document-area">
+            {#if mode !== "preview"}<section class="source-pane">{#key activeEntry.id}<CodeMirrorEditor value={activeDocument.content} onChange={editDocument} onReady={(fn) => insertIntoEditor = fn} />{/key}</section>{/if}
+            {#if mode !== "source"}<section class="preview-pane"><MarkdownPreview markdown={activeDocument.content} {assetUrls} documentPath={activeEntry.path} /></section>{/if}
+          </div>
+        {/if}
       {:else if activeEntry?.kind === "diagram" && activeDiagram}
         <section class="diagram-workspace"><div class="diagram-heading"><div><p class="eyebrow">DIAGRAM</p><h1>{activeEntry.name}</h1></div><button onclick={insertDiagramReference}>Markdown に SVG を挿入</button></div>{#if DiagramEditor}<DiagramEditor diagram={activeDiagram} onChange={saveDiagram} />{:else}<p>図表エディタを読み込んでいます…</p>{/if}</section>
       {:else}<section class="setup-card"><p class="eyebrow">LOCAL-FIRST</p><h1>文書を選択、または新規作成してください。</h1><p>データはこのブラウザ内に保存されます。定期的に ZIP バックアップを作成してください。</p></section>{/if}
