@@ -1,5 +1,38 @@
 import { expect, test } from "@playwright/test";
 
+test("downloads a ZIP backup", async ({ page }) => {
+  await page.goto("/workspace");
+  await expect(page.locator(".cm-content")).toBeVisible();
+
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "ZIP バックアップ" }).click();
+  const exported = await download;
+
+  expect(exported.suggestedFilename()).toMatch(/\.zip$/);
+  await expect(page.locator(".status")).toContainText(
+    "ZIP バックアップをダウンロードしました",
+  );
+});
+
+test("downloads the open Markdown document", async ({ page }) => {
+  await page.goto("/workspace");
+  await expect(page.locator(".cm-content")).toBeVisible();
+
+  await page.keyboard.press("Meta+Shift+K");
+  const markdownDownloadCommand = page.getByRole("button", {
+    name: "開いている Markdown をダウンロード",
+  });
+  await expect(markdownDownloadCommand).toBeVisible();
+  const download = page.waitForEvent("download");
+  await markdownDownloadCommand.click();
+  const exported = await download;
+
+  expect(exported.suggestedFilename()).toBe("overview.md");
+  await expect(page.locator(".status")).toContainText(
+    "Markdown をダウンロードしました",
+  );
+});
+
 test("edits are persisted after reload", async ({ page }) => {
   await page.goto("/workspace");
   const editor = page.locator(".cm-content");

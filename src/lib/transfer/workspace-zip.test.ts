@@ -4,6 +4,7 @@ import {
   cloneWorkspace,
   defaultWorkspace,
 } from "../domain/workspace";
+import { createEntry } from "../workspace/workspace-service";
 import {
   exportWorkspace,
   importWorkspace,
@@ -16,6 +17,8 @@ describe("ZIP import guardrails", () => {
 
   it("round-trips Markdown and assets through a validated manifest", async () => {
     const workspace = cloneWorkspace(defaultWorkspace);
+    const plans = createEntry(workspace, "folder", null, "plans");
+    createEntry(workspace, "diagram", plans.id, "System flow");
     const asset: Asset = {
       id: "image",
       workspaceId: workspace.id,
@@ -46,5 +49,43 @@ describe("ZIP import guardrails", () => {
     expect(
       restored.binaries.get(restored.workspace.assets[0]?.id ?? ""),
     ).toBeDefined();
+    expect(
+      restored.workspace.entries.some(
+        (entry) =>
+          entry.kind === "diagram" && entry.path === "plans/System flow",
+      ),
+    ).toBe(true);
+    expect(
+      restored.workspace.entries.some((entry) => entry.path === "diagrams"),
+    ).toBe(false);
+    expect(
+      restored.workspace.entries.some((entry) => entry.path === "assets"),
+    ).toBe(false);
+  });
+
+  it("rejects an export when an asset binary is unavailable", async () => {
+    const workspace = cloneWorkspace(defaultWorkspace);
+    workspace.assets.push({
+      id: "missing-image",
+      workspaceId: workspace.id,
+      path: "assets/missing.png",
+      mediaType: "image/png",
+      byteSize: 3,
+      checksum: "ignored",
+      createdAt: workspace.createdAt,
+    });
+    const repository = {
+      mode: "indexeddb" as const,
+      open: async () => workspace,
+      listWorkspaces: async () => [],
+      save: async () => undefined,
+      putAsset: async () => undefined,
+      getAsset: async () => null,
+      deleteAsset: async () => undefined,
+    };
+
+    await expect(exportWorkspace(workspace, repository)).rejects.toThrow(
+      "アセットを読み出せませんでした: assets/missing.png",
+    );
   });
 });

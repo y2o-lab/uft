@@ -44,46 +44,48 @@ export async function exportWorkspace(
 ): Promise<Blob> {
   const output: Record<string, Uint8Array> = {};
   const files: ZipManifest["files"] = [];
+  const addFile = async (
+    path: string,
+    bytes: Uint8Array,
+    mime: string,
+    assetId?: string,
+  ) => {
+    if (normalizePath(path) !== path || path in output)
+      throw new Error(`ZIP 内のファイルパスが重複または不正です: ${path}`);
+    output[path] = bytes;
+    files.push({
+      path,
+      mime,
+      checksum: await checksum(bytes),
+      size: bytes.byteLength,
+      ...(assetId ? { assetId } : {}),
+    });
+  };
   for (const entry of workspace.entries.filter(
     (item) => !item.deletedAt && item.kind === "markdown",
   )) {
-    const content = workspace.documents[entry.id]?.content ?? "";
+    const document = workspace.documents[entry.id];
+    if (!document)
+      throw new Error(`Markdown 文書を読み出せませんでした: ${entry.path}`);
+    const content = document.content;
     const bytes = strToU8(content);
-    output[entry.path] = bytes;
-    files.push({
-      path: entry.path,
-      mime: "text/markdown",
-      checksum: await checksum(bytes),
-      size: bytes.byteLength,
-    });
+    await addFile(entry.path, bytes, "text/markdown");
   }
   for (const entry of workspace.entries.filter(
     (item) => !item.deletedAt && item.kind === "diagram",
   )) {
     const diagram = workspace.diagrams[entry.id];
-    if (!diagram) continue;
-    const path = `diagrams/${entry.name.replace(/\.[^.]+$/, "")}.uft.json`;
+    if (!diagram)
+      throw new Error(`図表データを読み出せませんでした: ${entry.path}`);
+    const path = `diagrams/${entry.path.replace(/\.[^.]+$/, "")}.uft.json`;
     const bytes = strToU8(JSON.stringify(diagram));
-    output[path] = bytes;
-    files.push({
-      path,
-      mime: "application/vnd.uft.diagram+json",
-      checksum: await checksum(bytes),
-      size: bytes.byteLength,
-    });
+    await addFile(path, bytes, "application/vnd.uft.diagram+json");
   }
   for (const asset of workspace.assets) {
     const data = await repository.getAsset(asset.id);
-    if (!data) continue;
+    if (!data) throw new Error(`アセットを読み出せませんでした: ${asset.path}`);
     const bytes = new Uint8Array(data);
-    output[asset.path] = bytes;
-    files.push({
-      path: asset.path,
-      mime: asset.mediaType,
-      checksum: await checksum(bytes),
-      size: bytes.byteLength,
-      assetId: asset.id,
-    });
+    await addFile(asset.path, bytes, asset.mediaType, asset.id);
   }
   const manifest: ZipManifest = {
     formatVersion: ZIP_FORMAT_VERSION,
@@ -95,7 +97,12 @@ export async function exportWorkspace(
     },
     files,
   };
-  output["uft-manifest.json"] = strToU8(JSON.stringify(manifest, null, 2));
+  const manifestPath = "uft-manifest.json";
+  if (manifestPath in output)
+    throw new Error(
+      `ZIP 内のファイルパスが重複または不正です: ${manifestPath}`,
+    );
+  output[manifestPath] = strToU8(JSON.stringify(manifest, null, 2));
   return new Blob([zipSync(output, { level: 6 })], { type: "application/zip" });
 }
 
@@ -184,11 +191,11 @@ export async function importWorkspace(
     const content = entries[file.path];
     if (!content || (await checksum(content)) !== file.checksum)
       throw new Error(`ファイル検証に失敗しました: ${file.path}`);
-    const parentId = addDirectories(file.path);
     if (file.path.endsWith(".md")) {
       const id = newId("markdown");
       const name = file.path.split("/").at(-1);
       if (!name) throw new Error(`ファイル名が不正です: ${file.path}`);
+      const parentId = addDirectories(file.path);
       source.entries.push({
         id,
         workspaceId: source.id,
@@ -215,17 +222,22 @@ export async function importWorkspace(
       const diagram = JSON.parse(strFromU8(content));
       if (!diagram.graph?.nodes || !Array.isArray(diagram.graph.nodes))
         throw new Error(`図表データが不正です: ${file.path}`);
+      const sourcePath = file.path
+        .slice("diagrams/".length)
+        .replace(/\.uft\.json$/, "");
+      if (normalizePath(sourcePath) !== sourcePath)
+        throw new Error(`図表名が不正です: ${file.path}`);
       const id = newId("diagram");
-      const fileName = file.path.split("/").at(-1);
+      const fileName = sourcePath.split("/").at(-1);
       if (!fileName) throw new Error(`図表名が不正です: ${file.path}`);
-      const name = fileName.replace(".uft.json", "");
+      const parentId = addDirectories(sourcePath);
       source.entries.push({
         id,
         workspaceId: source.id,
         parentId,
         kind: "diagram",
-        name,
-        path: `diagrams/${name}`,
+        name: fileName,
+        path: sourcePath,
         sortOrder: source.entries.length,
         createdAt: source.createdAt,
         updatedAt: source.updatedAt,
@@ -263,6 +275,9 @@ export function download(blob: Blob, fileName: string): void {
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = fileName;
+  anchor.style.display = "none";
+  document.body.append(anchor);
   anchor.click();
+  anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }

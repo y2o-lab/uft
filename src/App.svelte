@@ -620,7 +620,7 @@ function setEditorInsertionHandler(handler: (text: string) => void): void {
 
 async function backup(): Promise<void> {
   if (!workspace || !repository) return;
-  await saveNow();
+  if (!(await saveNow())) return;
   try {
     download(
       await exportWorkspace(workspace, repository),
@@ -654,10 +654,18 @@ async function restore(file: File): Promise<void> {
 }
 function downloadMarkdown(): void {
   if (!activeEntry || !activeDocument) return;
-  download(
-    new Blob([activeDocument.content], { type: "text/markdown;charset=utf-8" }),
-    activeEntry.name,
-  );
+  try {
+    download(
+      new Blob([activeDocument.content], {
+        type: "text/markdown;charset=utf-8",
+      }),
+      activeEntry.name,
+    );
+    status = "Markdown をダウンロードしました";
+    statusTone = "info";
+  } catch (error) {
+    notify(error);
+  }
 }
 function printDocument(): void {
   mode = "preview";
