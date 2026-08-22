@@ -41,6 +41,14 @@ describe("ZIP import guardrails", () => {
       putAsset: async () => undefined,
       getAsset: async (id: string) => (id === asset.id ? bytes : null),
       deleteAsset: async () => undefined,
+      createMigrationSnapshot: async () => ({
+        id: "snapshot",
+        workspaceId: workspace.id,
+        schemaVersion: workspace.schemaVersion,
+        createdAt: workspace.createdAt,
+        reason: "test",
+      }),
+      restoreMigrationSnapshot: async () => workspace,
     };
     const restored = await importWorkspace(
       await exportWorkspace(workspace, repository),
@@ -88,6 +96,14 @@ describe("ZIP import guardrails", () => {
       putAsset: async () => undefined,
       getAsset: async () => null,
       deleteAsset: async () => undefined,
+      createMigrationSnapshot: async () => ({
+        id: "snapshot",
+        workspaceId: workspace.id,
+        schemaVersion: workspace.schemaVersion,
+        createdAt: workspace.createdAt,
+        reason: "test",
+      }),
+      restoreMigrationSnapshot: async () => workspace,
     };
 
     await expect(exportWorkspace(workspace, repository)).rejects.toThrow(

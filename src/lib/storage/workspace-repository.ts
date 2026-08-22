@@ -5,13 +5,23 @@ import {
   type Workspace,
 } from "../domain/workspace";
 
+export type MigrationSnapshot = {
+  id: string;
+  workspaceId: string;
+  schemaVersion: number;
+  createdAt: string;
+  reason: string;
+};
+
 type Method =
   | "open"
   | "list"
   | "save"
   | "putAsset"
   | "getAsset"
-  | "deleteAsset";
+  | "deleteAsset"
+  | "createMigrationSnapshot"
+  | "restoreMigrationSnapshot";
 type WorkerResponse = {
   id: string;
   ok: boolean;
@@ -28,6 +38,11 @@ export interface WorkspaceRepository {
   putAsset(asset: Asset, bytes: ArrayBuffer): Promise<void>;
   getAsset(id: string): Promise<ArrayBuffer | null>;
   deleteAsset(id: string): Promise<void>;
+  createMigrationSnapshot(
+    workspace: Workspace,
+    reason: string,
+  ): Promise<MigrationSnapshot>;
+  restoreMigrationSnapshot(id: string): Promise<Workspace>;
   readonly mode: "opfs-sqlite" | "indexeddb";
 }
 
@@ -125,9 +140,26 @@ class WorkerRepository implements WorkspaceRepository {
   deleteAsset(id: string): Promise<void> {
     return this.#enqueue(() => this.#call("deleteAsset", id));
   }
-  #enqueue(operation: () => Promise<void>): Promise<void> {
+  createMigrationSnapshot(
+    workspace: Workspace,
+    reason: string,
+  ): Promise<MigrationSnapshot> {
+    return this.#enqueue(() =>
+      this.#call("createMigrationSnapshot", {
+        workspace: cloneWorkspace(workspace),
+        reason,
+      }),
+    );
+  }
+  restoreMigrationSnapshot(id: string): Promise<Workspace> {
+    return this.#enqueue(() => this.#call("restoreMigrationSnapshot", id));
+  }
+  #enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.#queue.then(operation, operation);
-    this.#queue = next.catch(() => undefined);
+    this.#queue = next.then(
+      () => undefined,
+      () => undefined,
+    );
     return next;
   }
   #rejectPending(error: Error): void {
@@ -280,9 +312,71 @@ class IndexedDbRepository implements WorkspaceRepository {
       });
     });
   }
-  #enqueue(operation: () => Promise<void>): Promise<void> {
+  async createMigrationSnapshot(
+    workspace: Workspace,
+    reason: string,
+  ): Promise<MigrationSnapshot> {
+    const assets = await Promise.all(
+      workspace.assets.map(async (asset) => {
+        const bytes = await this.getAsset(asset.id);
+        if (!bytes)
+          throw new Error(`移行前バックアップを作成できません: ${asset.path}`);
+        return { id: asset.id, bytes };
+      }),
+    );
+    const snapshot: MigrationSnapshot & {
+      workspace: Workspace;
+      assets: Array<{ id: string; bytes: ArrayBuffer }>;
+    } = {
+      id: `migration-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`,
+      workspaceId: workspace.id,
+      schemaVersion: workspace.schemaVersion,
+      createdAt: new Date().toISOString(),
+      reason,
+      workspace: cloneWorkspace(workspace),
+      assets,
+    };
+    // Keep snapshots in the pre-existing metadata store. Increasing the IDB
+    // version would prevent an older emergency-rollback build from opening it.
+    await this.#put("metadata", `migrationSnapshot:${snapshot.id}`, snapshot);
+    return snapshot;
+  }
+  async restoreMigrationSnapshot(id: string): Promise<Workspace> {
+    const snapshot = await this.#value<
+      MigrationSnapshot & {
+        workspace: Workspace;
+        assets: Array<{ id: string; bytes: ArrayBuffer }>;
+      }
+    >("metadata", `migrationSnapshot:${id}`);
+    if (!snapshot) throw new Error("移行前バックアップが見つかりません。");
+    const current = await this.open(snapshot.workspace.id);
+    const db = await this.#openDb();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(
+        ["workspace", "assets", "metadata"],
+        "readwrite",
+      );
+      const assets = transaction.objectStore("assets");
+      for (const asset of current.assets) assets.delete(asset.id);
+      for (const asset of snapshot.assets) assets.put(asset.bytes, asset.id);
+      transaction
+        .objectStore("workspace")
+        .put(cloneWorkspace(snapshot.workspace), snapshot.workspace.id);
+      transaction
+        .objectStore("metadata")
+        .put(snapshot.workspace.id, "activeWorkspaceId");
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    return cloneWorkspace(snapshot.workspace);
+  }
+  #enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.#queue.then(operation, operation);
-    this.#queue = next.catch(() => undefined);
+    this.#queue = next.then(
+      () => undefined,
+      () => undefined,
+    );
     return next;
   }
 }

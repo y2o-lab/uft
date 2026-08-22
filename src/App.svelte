@@ -13,6 +13,7 @@ import {
   type Workspace,
   type WorkspaceEntry,
 } from "./lib/domain/workspace";
+import { migrateWorkspace } from "./lib/domain/workspace-migrations";
 import { relativeAssetPath } from "./lib/markdown/preview";
 import {
   createFallbackWorkspaceRepository,
@@ -99,6 +100,8 @@ let launcherSelectedIndex = $state(0);
 let writerMode = $state<"writer" | "read-only" | "unavailable">("unavailable");
 let releaseWriterLock: (() => void) | undefined;
 let acquiringWriterLock = false;
+let writerLockReady: Promise<void> | undefined;
+let resolveWriterLockReady: (() => void) | undefined;
 let DiagramEditor = $state<Component<{ diagram: import("./lib/domain/workspace").DiagramDocument; onChange: (diagram: import("./lib/domain/workspace").DiagramDocument) => void }> | null>(null);
 
 let activeEntry = $derived(
@@ -262,6 +265,8 @@ $effect(() => {
         workspace = await repository.open();
         status = "SQLite を利用できないため互換保存モードで動作中";
       }
+      await acquireWriterLock();
+      workspace = await migrateLoadedWorkspace(workspace);
     const requestedEntryId = new URLSearchParams(window.location.search).get("entry");
     activeEntryId =
       (requestedEntryId && activeEntries(workspace).some((entry) => entry.id === requestedEntryId)
@@ -278,7 +283,6 @@ $effect(() => {
         .map((entry) => entry.id),
     );
       await hydrateAssets();
-      acquireWriterLock();
       status =
       repository.mode === "opfs-sqlite"
         ? "このブラウザに安全に保存されます"
@@ -291,13 +295,31 @@ $effect(() => {
   }
 }
 
-function acquireWriterLock(): void {
+async function migrateLoadedWorkspace(
+  candidate: Workspace,
+): Promise<Workspace> {
+  if (!repository) throw new Error("保存領域を初期化できませんでした。");
+  const migration = migrateWorkspace(candidate);
+  if (!migration.migrated || writerMode !== "writer") return candidate;
+  await repository.createMigrationSnapshot(
+    candidate,
+    `workspace schema ${migration.fromVersion} to ${migration.toVersion}`,
+  );
+  await repository.save(migration.workspace);
+  return migration.workspace;
+}
+
+function acquireWriterLock(): Promise<void> {
   if (!("locks" in navigator)) {
     writerMode = "unavailable";
-    return;
+    return Promise.resolve();
   }
-  if (writerMode === "writer" || acquiringWriterLock) return;
+  if (writerMode === "writer") return Promise.resolve();
+  if (acquiringWriterLock) return writerLockReady ?? Promise.resolve();
   acquiringWriterLock = true;
+  writerLockReady = new Promise((resolve) => {
+    resolveWriterLockReady = resolve;
+  });
   const hold = new Promise<void>((resolve) => {
     releaseWriterLock = resolve;
   });
@@ -310,16 +332,23 @@ function acquireWriterLock(): void {
         if (!lock) {
           writerMode = "read-only";
           status = "別の UFT タブが書き込み中です（読み取り専用）";
+          resolveWriterLockReady?.();
+          resolveWriterLockReady = undefined;
           return;
         }
         writerMode = "writer";
+        resolveWriterLockReady?.();
+        resolveWriterLockReady = undefined;
         await hold;
       },
     )
     .catch(() => {
       acquiringWriterLock = false;
       writerMode = "unavailable";
+      resolveWriterLockReady?.();
+      resolveWriterLockReady = undefined;
     });
+  return writerLockReady;
 }
 
 async function hydrateAssets(): Promise<void> {
@@ -345,7 +374,7 @@ async function switchWorkspace(): Promise<void> {
   );
   if (!selected || selected === workspace?.id) return;
   try {
-    workspace = await repository.open(selected);
+    workspace = await migrateLoadedWorkspace(await repository.open(selected));
     activeEntryId = workspace.lastOpenedEntryId ?? activeEntries(workspace).find((entry) => entry.kind === "markdown")?.id ?? null;
     expanded = new Set(activeEntries(workspace).filter((entry) => entry.kind === "folder").map((entry) => entry.id));
     await hydrateAssets();
