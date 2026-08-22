@@ -1,3 +1,4 @@
+import { strToU8, zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import {
   type Asset,
@@ -29,6 +30,8 @@ describe("ZIP import guardrails", () => {
       createdAt: workspace.createdAt,
     };
     workspace.assets.push(asset);
+    const diagram = Object.values(workspace.diagrams)[0];
+    if (diagram) diagram.previewAssetId = asset.id;
     const bytes = new Uint8Array([1, 2, 3]).buffer;
     const repository = {
       mode: "indexeddb" as const,
@@ -61,6 +64,9 @@ describe("ZIP import guardrails", () => {
     expect(
       restored.workspace.entries.some((entry) => entry.path === "assets"),
     ).toBe(false);
+    expect(Object.values(restored.workspace.diagrams)[0]?.previewAssetId).toBe(
+      restored.workspace.assets[0]?.id,
+    );
   });
 
   it("rejects an export when an asset binary is unavailable", async () => {
@@ -87,5 +93,22 @@ describe("ZIP import guardrails", () => {
     await expect(exportWorkspace(workspace, repository)).rejects.toThrow(
       "アセットを読み出せませんでした: assets/missing.png",
     );
+  });
+
+  it("rejects archive entries that are absent from the manifest", async () => {
+    const archive = zipSync({
+      "uft-manifest.json": strToU8(
+        JSON.stringify({
+          formatVersion: 1,
+          workspace: { name: "Unexpected file" },
+          files: [],
+        }),
+      ),
+      "unexpected.txt": strToU8("not described by the manifest"),
+    });
+
+    await expect(
+      importWorkspace(new Blob([archive], { type: "application/zip" })),
+    ).rejects.toThrow("マニフェストにない ZIP ファイルが含まれています");
   });
 });

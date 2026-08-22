@@ -1,4 +1,5 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
+import { validateGraph } from "../diagrams/diagram";
 import { normalizePath } from "../domain/tree";
 import {
   type Asset,
@@ -25,6 +26,58 @@ export type ZipManifest = {
   }>;
 };
 
+function validateManifest(
+  value: unknown,
+  archive: Record<string, Uint8Array>,
+): asserts value is ZipManifest {
+  if (!value || typeof value !== "object")
+    throw new Error("マニフェスト JSON が不正です。");
+  const manifest = value as Partial<ZipManifest>;
+  if (
+    manifest.formatVersion !== ZIP_FORMAT_VERSION ||
+    !manifest.workspace ||
+    typeof manifest.workspace.name !== "string" ||
+    !manifest.workspace.name.trim() ||
+    !Array.isArray(manifest.files)
+  )
+    throw new Error("対応していないワークスペース形式です。");
+
+  const listedPaths = new Set<string>();
+  for (const file of manifest.files) {
+    if (
+      !file ||
+      typeof file.path !== "string" ||
+      normalizePath(file.path) !== file.path ||
+      file.path === "uft-manifest.json" ||
+      typeof file.mime !== "string" ||
+      typeof file.checksum !== "string" ||
+      !/^[a-f0-9]{64}$/i.test(file.checksum) ||
+      !Number.isSafeInteger(file.size) ||
+      file.size < 0 ||
+      (file.assetId !== undefined && typeof file.assetId !== "string")
+    )
+      throw new Error("マニフェスト内のファイル情報が不正です。");
+    if (listedPaths.has(file.path))
+      throw new Error(`ZIP 内のファイルパスが重複しています: ${file.path}`);
+    if (
+      !file.path.endsWith(".md") &&
+      !(file.path.startsWith("diagrams/") && file.path.endsWith(".uft.json")) &&
+      !file.path.startsWith("assets/")
+    )
+      throw new Error(`対応していない ZIP ファイルです: ${file.path}`);
+    const content = archive[file.path];
+    if (!content || content.byteLength !== file.size)
+      throw new Error(`ファイル検証に失敗しました: ${file.path}`);
+    listedPaths.add(file.path);
+  }
+  for (const path of Object.keys(archive)) {
+    if (path !== "uft-manifest.json" && !listedPaths.has(path))
+      throw new Error(
+        `マニフェストにない ZIP ファイルが含まれています: ${path}`,
+      );
+  }
+}
+
 async function checksum(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -42,6 +95,7 @@ export async function exportWorkspace(
   workspace: Workspace,
   repository: WorkspaceRepository,
 ): Promise<Blob> {
+  const snapshot = cloneWorkspace(workspace);
   const output: Record<string, Uint8Array> = {};
   const files: ZipManifest["files"] = [];
   const addFile = async (
@@ -61,27 +115,27 @@ export async function exportWorkspace(
       ...(assetId ? { assetId } : {}),
     });
   };
-  for (const entry of workspace.entries.filter(
+  for (const entry of snapshot.entries.filter(
     (item) => !item.deletedAt && item.kind === "markdown",
   )) {
-    const document = workspace.documents[entry.id];
+    const document = snapshot.documents[entry.id];
     if (!document)
       throw new Error(`Markdown 文書を読み出せませんでした: ${entry.path}`);
     const content = document.content;
     const bytes = strToU8(content);
     await addFile(entry.path, bytes, "text/markdown");
   }
-  for (const entry of workspace.entries.filter(
+  for (const entry of snapshot.entries.filter(
     (item) => !item.deletedAt && item.kind === "diagram",
   )) {
-    const diagram = workspace.diagrams[entry.id];
+    const diagram = snapshot.diagrams[entry.id];
     if (!diagram)
       throw new Error(`図表データを読み出せませんでした: ${entry.path}`);
     const path = `diagrams/${entry.path.replace(/\.[^.]+$/, "")}.uft.json`;
     const bytes = strToU8(JSON.stringify(diagram));
     await addFile(path, bytes, "application/vnd.uft.diagram+json");
   }
-  for (const asset of workspace.assets) {
+  for (const asset of snapshot.assets) {
     const data = await repository.getAsset(asset.id);
     if (!data) throw new Error(`アセットを読み出せませんでした: ${asset.path}`);
     const bytes = new Uint8Array(data);
@@ -90,10 +144,10 @@ export async function exportWorkspace(
   const manifest: ZipManifest = {
     formatVersion: ZIP_FORMAT_VERSION,
     workspace: {
-      id: workspace.id,
-      name: workspace.name,
-      createdAt: workspace.createdAt,
-      updatedAt: workspace.updatedAt,
+      id: snapshot.id,
+      name: snapshot.name,
+      createdAt: snapshot.createdAt,
+      updatedAt: snapshot.updatedAt,
     },
     files,
   };
@@ -141,12 +195,7 @@ export async function importWorkspace(
   } catch {
     throw new Error("マニフェスト JSON が不正です。");
   }
-  if (
-    manifest.formatVersion !== ZIP_FORMAT_VERSION ||
-    !manifest.workspace?.name ||
-    !Array.isArray(manifest.files)
-  )
-    throw new Error("対応していないワークスペース形式です。");
+  validateManifest(manifest, entries);
   const source = cloneWorkspace({
     id: newId("workspace"),
     name: manifest.workspace.name,
@@ -160,6 +209,7 @@ export async function importWorkspace(
     diagrams: {},
   });
   const directories = new Map<string, string>();
+  const restoredAssetIds = new Map<string, string>();
   const addDirectories = (path: string) => {
     let parentId: string | null = null;
     let current = "";
@@ -219,8 +269,17 @@ export async function importWorkspace(
       file.path.startsWith("diagrams/") &&
       file.path.endsWith(".uft.json")
     ) {
-      const diagram = JSON.parse(strFromU8(content));
-      if (!diagram.graph?.nodes || !Array.isArray(diagram.graph.nodes))
+      let diagram: unknown;
+      try {
+        diagram = JSON.parse(strFromU8(content));
+      } catch {
+        throw new Error(`図表データが不正です: ${file.path}`);
+      }
+      if (
+        !diagram ||
+        typeof diagram !== "object" ||
+        !validateGraph((diagram as { graph?: unknown }).graph)
+      )
         throw new Error(`図表データが不正です: ${file.path}`);
       const sourcePath = file.path
         .slice("diagrams/".length)
@@ -243,7 +302,10 @@ export async function importWorkspace(
         updatedAt: source.updatedAt,
         deletedAt: null,
       });
-      source.diagrams[id] = { ...diagram, entryId: id };
+      source.diagrams[id] = {
+        ...(diagram as Workspace["diagrams"][string]),
+        entryId: id,
+      };
     } else if (file.path.startsWith("assets/")) {
       const id = newId("asset");
       const asset: Asset = {
@@ -256,6 +318,7 @@ export async function importWorkspace(
         createdAt: source.createdAt,
       };
       source.assets.push(asset);
+      if (file.assetId) restoredAssetIds.set(file.assetId, id);
       binaries.set(
         id,
         content.buffer.slice(
@@ -264,6 +327,11 @@ export async function importWorkspace(
         ) as ArrayBuffer,
       );
     }
+  }
+  for (const diagram of Object.values(source.diagrams)) {
+    diagram.previewAssetId = diagram.previewAssetId
+      ? (restoredAssetIds.get(diagram.previewAssetId) ?? null)
+      : null;
   }
   if (!Object.keys(source.documents).length)
     throw new Error("Markdown 文書を含む ZIP を選択してください。");

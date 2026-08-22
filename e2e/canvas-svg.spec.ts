@@ -24,7 +24,7 @@ test("a canvas diagram saves its SVG and can be embedded in Markdown", async ({
   await page.getByRole("button", { name: "Markdown に SVG を挿入" }).click();
   await expect(page.getByRole("button", { name: "▤ overview.md" })).toBeVisible();
   await expect(page.locator(".cm-content")).toContainText(
-    "assets/diagrams/System flow.svg",
+    /assets\/diagrams\/System-flow-diagram-[^\s)]+\.svg/,
   );
   await expect(page.getByText("保存済み")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText("保存に失敗しました")).toHaveCount(0);
@@ -32,7 +32,7 @@ test("a canvas diagram saves its SVG and can be embedded in Markdown", async ({
   await page.reload();
   await expect(page.getByRole("button", { name: "◇ System flow" })).toBeVisible();
   await expect(page.locator(".cm-content")).toContainText(
-    "assets/diagrams/System flow.svg",
+    /assets\/diagrams\/System-flow-diagram-[^\s)]+\.svg/,
   );
   await page.getByRole("button", { name: "Preview" }).click();
   await expect(page.locator('.preview-content img[alt="System flow"]')).toHaveAttribute(

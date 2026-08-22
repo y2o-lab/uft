@@ -1,4 +1,31 @@
+import { createHash } from "node:crypto";
 import { expect, test } from "@playwright/test";
+import { strToU8, zipSync } from "fflate";
+
+function backupArchive(name: string, path: string, content: string): Uint8Array {
+  const markdown = strToU8(content);
+  const manifest = {
+    formatVersion: 1,
+    workspace: {
+      id: "backup-source",
+      name,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+    files: [
+      {
+        path,
+        mime: "text/markdown",
+        checksum: createHash("sha256").update(markdown).digest("hex"),
+        size: markdown.byteLength,
+      },
+    ],
+  };
+  return zipSync({
+    [path]: markdown,
+    "uft-manifest.json": strToU8(JSON.stringify(manifest)),
+  });
+}
 
 test("downloads a ZIP backup", async ({ page }) => {
   await page.goto("/workspace");
@@ -44,6 +71,139 @@ test("edits are persisted after reload", async ({ page }) => {
   await expect(page.locator(".status")).toContainText("保存済み");
   await page.reload();
   await expect(page.locator(".preview-content")).toContainText("Saved locally.");
+});
+
+test("falls back to IndexedDB when OPFS is unavailable", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "storage", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+  await page.goto("/workspace");
+  const editor = page.locator(".cm-content");
+  await expect(editor).toBeVisible();
+  await expect(page.locator(".status")).toContainText("互換保存モード");
+  await editor.click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText("# Fallback\n\nSaved in IndexedDB.");
+  await page.getByRole("button", { name: /保存/ }).click();
+  await expect(page.locator(".status")).toContainText("保存済み");
+
+  await page.reload();
+  await expect(page.locator(".preview-content")).toContainText(
+    "Saved in IndexedDB.",
+  );
+});
+
+test("a second tab is visibly read-only while another tab holds the writer lock", async ({
+  page,
+}) => {
+  await page.goto("/workspace");
+  await expect(page.locator(".cm-content")).toBeVisible();
+  await expect(page.getByText("このブラウザに安全に保存されます")).toBeVisible();
+
+  const secondTab = await page.context().newPage();
+  await secondTab.goto("/workspace");
+  await expect(
+    secondTab.getByText("別の UFT タブが書き込み中です（読み取り専用）"),
+  ).toBeVisible();
+  await expect(
+    secondTab.getByRole("button", { name: "新しい文書" }),
+  ).toBeDisabled();
+  await expect(secondTab.locator(".cm-content")).toHaveAttribute(
+    "contenteditable",
+    "false",
+  );
+  await secondTab.close();
+});
+
+test("a read-only tab acquires the writer lock after the original tab closes", async ({
+  page,
+}) => {
+  await page.goto("/workspace");
+  await expect(page.locator(".cm-content")).toBeVisible();
+
+  const secondTab = await page.context().newPage();
+  await secondTab.goto("/workspace");
+  const newDocument = secondTab.getByRole("button", { name: "新しい文書" });
+  await expect(newDocument).toBeDisabled();
+
+  await page.close();
+  await secondTab.bringToFront();
+  await expect(newDocument).toBeEnabled();
+  await expect(secondTab.locator(".cm-content")).toHaveAttribute(
+    "contenteditable",
+    "true",
+  );
+  await secondTab.close();
+});
+
+test("restored workspaces remain saveable after reloading alongside another workspace", async ({
+  page,
+}) => {
+  await page.goto("/workspace");
+  const editor = page.locator(".cm-content");
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText("# Existing workspace");
+  await page.getByRole("button", { name: /保存/ }).click();
+  await expect(page.locator(".status")).toContainText("保存済み");
+
+  await page
+    .locator('input[accept="application/zip,.zip"]')
+    .setInputFiles({
+      name: "restored.zip",
+      mimeType: "application/zip",
+      buffer: Buffer.from(
+        backupArchive("Restored workspace", "restored.md", "# Restored"),
+      ),
+    });
+  await expect(page.locator(".status")).toContainText(
+    "新しいワークスペースとして復元しました",
+  );
+
+  await page.reload();
+  await expect(editor).toBeVisible();
+  await expect(editor).toContainText("# Restored");
+  await editor.click();
+  await page.keyboard.press("End");
+  await page.keyboard.insertText("\n\nPersisted after reload.");
+  await page.getByRole("button", { name: /保存/ }).click();
+  await expect(page.locator(".status")).toContainText("保存済み");
+  await expect(page.getByText("保存に失敗しました")).toHaveCount(0);
+});
+
+test("switching workspaces remains selected after reloading", async ({ page }) => {
+  await page.goto("/workspace");
+  const editor = page.locator(".cm-content");
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText("# Original workspace");
+  await page.getByRole("button", { name: /保存/ }).click();
+
+  await page
+    .locator('input[accept="application/zip,.zip"]')
+    .setInputFiles({
+      name: "newer.zip",
+      mimeType: "application/zip",
+      buffer: Buffer.from(
+        backupArchive("Newer workspace", "newer.md", "# Newer workspace"),
+      ),
+    });
+  await expect(page.locator(".status")).toContainText(
+    "新しいワークスペースとして復元しました",
+  );
+
+  page.once("dialog", (dialog) => void dialog.accept("default"));
+  await page.getByRole("button", { name: /コマンド/ }).click();
+  await page.getByRole("button", { name: "ワークスペースを切り替える" }).click();
+  await expect(editor).toContainText("# Original workspace");
+
+  await page.reload();
+  await expect(editor).toContainText("# Original workspace");
 });
 
 test("command templates remain separate Markdown blocks", async ({ page }) => {

@@ -3,12 +3,49 @@ import type { DiagramGraph } from "../domain/workspace";
 export function validateGraph(graph: unknown): graph is DiagramGraph {
   if (!graph || typeof graph !== "object") return false;
   const candidate = graph as Partial<DiagramGraph>;
-  return (
-    candidate.formatVersion === 1 &&
-    Array.isArray(candidate.nodes) &&
-    Array.isArray(candidate.edges) &&
-    Boolean(candidate.viewport)
-  );
+  if (
+    candidate.formatVersion !== 1 ||
+    !Array.isArray(candidate.nodes) ||
+    !Array.isArray(candidate.edges) ||
+    !candidate.viewport ||
+    !Number.isFinite(candidate.viewport.x) ||
+    !Number.isFinite(candidate.viewport.y) ||
+    !Number.isFinite(candidate.viewport.zoom) ||
+    candidate.viewport.zoom <= 0
+  )
+    return false;
+  const nodeIds = new Set<string>();
+  for (const node of candidate.nodes) {
+    if (
+      !node ||
+      typeof node.id !== "string" ||
+      !node.id ||
+      nodeIds.has(node.id) ||
+      !node.position ||
+      !Number.isFinite(node.position.x) ||
+      !Number.isFinite(node.position.y) ||
+      !node.data ||
+      typeof node.data.label !== "string"
+    )
+      return false;
+    nodeIds.add(node.id);
+  }
+  const edgeIds = new Set<string>();
+  for (const edge of candidate.edges) {
+    if (
+      !edge ||
+      typeof edge.id !== "string" ||
+      !edge.id ||
+      edgeIds.has(edge.id) ||
+      typeof edge.source !== "string" ||
+      typeof edge.target !== "string" ||
+      !nodeIds.has(edge.source) ||
+      !nodeIds.has(edge.target)
+    )
+      return false;
+    edgeIds.add(edge.id);
+  }
+  return true;
 }
 
 export function graphToMermaid(graph: DiagramGraph): {
@@ -39,14 +76,21 @@ export function graphToMermaid(graph: DiagramGraph): {
 }
 
 export function graphToSvg(graph: DiagramGraph): string {
-  const width = Math.max(
+  const padding = 40;
+  const minX = Math.min(0, ...graph.nodes.map((node) => node.position.x));
+  const minY = Math.min(0, ...graph.nodes.map((node) => node.position.y));
+  const maxX = Math.max(
     600,
-    ...graph.nodes.map((node) => node.position.x + 220),
+    ...graph.nodes.map((node) => node.position.x + 170),
   );
-  const height = Math.max(
+  const maxY = Math.max(
     320,
-    ...graph.nodes.map((node) => node.position.y + 100),
+    ...graph.nodes.map((node) => node.position.y + 54),
   );
+  const viewX = minX - padding;
+  const viewY = minY - padding;
+  const width = maxX - minX + padding * 2;
+  const height = maxY - minY + padding * 2;
   const nodes = graph.nodes
     .map(
       (node) =>
@@ -62,7 +106,7 @@ export function graphToSvg(graph: DiagramGraph): string {
       return `<path d="M ${source.position.x + 170} ${source.position.y + 27} L ${target.position.x} ${target.position.y + 27}" fill="none" stroke="#607d63" stroke-width="2" marker-end="url(#arrow)"/>`;
     })
     .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Diagram"><defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#607d63"/></marker></defs><rect width="100%" height="100%" fill="#fffefa"/>${edges}${nodes}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewX} ${viewY} ${width} ${height}" role="img" aria-label="Diagram"><defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#607d63"/></marker></defs><rect x="${viewX}" y="${viewY}" width="${width}" height="${height}" fill="#fffefa"/>${edges}${nodes}</svg>`;
 }
 
 function safeId(id: string): string {

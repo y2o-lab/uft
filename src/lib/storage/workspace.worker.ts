@@ -97,7 +97,11 @@ function loadWorkspace(
     deletedAt: row.deleted_at ? String(row.deleted_at) : null,
   }));
   const documents = Object.fromEntries(
-    rows(database, "SELECT * FROM documents").map((row) => [
+    rows(
+      database,
+      "SELECT documents.* FROM documents INNER JOIN entries ON entries.id = documents.entry_id WHERE entries.workspace_id = ?",
+      [workspaceId],
+    ).map((row) => [
       String(row.entry_id),
       {
         entryId: String(row.entry_id),
@@ -119,7 +123,11 @@ function loadWorkspace(
     createdAt: String(row.created_at),
   }));
   const diagrams = Object.fromEntries(
-    rows(database, "SELECT * FROM diagram_documents").map((row) => [
+    rows(
+      database,
+      "SELECT diagram_documents.* FROM diagram_documents INNER JOIN entries ON entries.id = diagram_documents.entry_id WHERE entries.workspace_id = ?",
+      [workspaceId],
+    ).map((row) => [
       String(row.entry_id),
       {
         entryId: String(row.entry_id),
