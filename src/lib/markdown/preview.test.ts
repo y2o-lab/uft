@@ -15,4 +15,12 @@ describe("Markdown preview", () => {
       "../../assets/image.png",
     );
   });
+  it("renders image paths containing spaces when they use Markdown angle brackets", async () => {
+    const html = await renderMarkdown(
+      "![System flow](<../assets/diagrams/System flow.svg>)",
+    );
+    expect(html).toContain(
+      '<img src="../assets/diagrams/System%20flow.svg" alt="System flow"',
+    );
+  });
 });

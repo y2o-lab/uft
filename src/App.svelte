@@ -77,6 +77,7 @@ let deleteTarget = $state<WorkspaceEntry | null>(null);
 let expanded = $state(new Set<string>());
 let assetUrls = $state<Record<string, string>>({});
 let insertIntoEditor: (text: string) => void = () => undefined;
+let pendingEditorInsertion = $state<string | null>(null);
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let deletedIds = $state<string[]>([]);
 let importInput = $state<HTMLInputElement>();
@@ -602,11 +603,19 @@ async function saveDiagram(diagram: import("./lib/domain/workspace").DiagramDocu
 
 function insertDiagramReference(): void {
   if (!workspace || !activeEntry || activeEntry.kind !== "diagram") return;
-  const path = `assets/diagrams/${activeEntry.name.replace(/\.[^.]+$/, "")}.svg`;
+  const diagramName = activeEntry.name;
+  const path = `assets/diagrams/${diagramName.replace(/\.[^.]+$/, "")}.svg`;
   const document = activeEntries(workspace).find((entry) => entry.kind === "markdown");
   if (!document) return;
   activeEntryId = document.id;
-  window.setTimeout(() => insertIntoEditor(`![${activeEntry.name}](${relativeAssetPath(document.path, path)})`), 0);
+  pendingEditorInsertion = `![${diagramName}](<${relativeAssetPath(document.path, path)}>)`;
+}
+
+function setEditorInsertionHandler(handler: (text: string) => void): void {
+  insertIntoEditor = handler;
+  if (!pendingEditorInsertion) return;
+  handler(pendingEditorInsertion);
+  pendingEditorInsertion = null;
 }
 
 async function backup(): Promise<void> {
@@ -883,7 +892,7 @@ function openImportedDocument(): void {
           </section>
         {:else}
           <div class:source-only={mode === "source"} class:preview-only={mode === "preview"} class="document-area">
-            {#if mode !== "preview"}<section class="source-pane">{#key activeEntry.id}<CodeMirrorEditor value={activeDocument.content} onChange={editDocument} onReady={(fn) => insertIntoEditor = fn} />{/key}</section>{/if}
+            {#if mode !== "preview"}<section class="source-pane">{#key activeEntry.id}<CodeMirrorEditor value={activeDocument.content} onChange={editDocument} onReady={setEditorInsertionHandler} />{/key}</section>{/if}
             {#if mode !== "source"}<section class="preview-pane"><MarkdownPreview markdown={activeDocument.content} {assetUrls} documentPath={activeEntry.path} /></section>{/if}
           </div>
         {/if}
