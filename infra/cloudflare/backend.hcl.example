@@ -1,0 +1,11 @@
+# Recommended production state backend: HCP Terraform.
+# Copy this file to backend.hcl (which is ignored), replace the values, and run:
+# terraform init -backend-config=backend.hcl
+#
+# Authentication is intentionally not in this file. Set TF_TOKEN_app_terraform_io
+# locally or TF_API_TOKEN in GitHub Actions instead.
+organization = "replace-with-hcp-terraform-organization"
+
+workspaces {
+  name = "uft-cloudflare-production"
+}
