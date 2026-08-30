@@ -1,16 +1,19 @@
 locals {
   custom_domains = setunion(toset([var.domain_name]), var.additional_custom_domains)
+  zone_id        = var.manage_zone ? cloudflare_zone.site[0].id : data.cloudflare_zone.site[0].id
 }
 
 # A zone can be created here for a newly registered domain. Its assigned
 # nameservers must then be delegated at the registrar before it becomes active.
+# Keep this distinct from the Pages hostname: the hostname may be a subdomain
+# in an existing parent zone.
 resource "cloudflare_zone" "site" {
   count = var.manage_zone ? 1 : 0
 
   account = {
     id = var.cloudflare_account_id
   }
-  name = var.domain_name
+  name = var.zone_name
   type = var.zone_type
 
   lifecycle {
@@ -22,8 +25,8 @@ resource "cloudflare_zone" "site" {
     }
 
     precondition {
-      condition     = var.domain_name != "example.com"
-      error_message = "Replace the example domain_name with the domain managed by your Cloudflare account before planning or applying."
+      condition     = var.zone_name != "example.com"
+      error_message = "Replace the example zone_name with the zone managed by your Cloudflare account before planning or applying."
     }
   }
 }
@@ -34,7 +37,7 @@ data "cloudflare_zone" "site" {
   count = var.manage_zone ? 0 : 1
 
   filter = {
-    name = var.domain_name
+    name = var.zone_name
     account = {
       id = var.cloudflare_account_id
     }
@@ -69,8 +72,8 @@ resource "cloudflare_web_analytics_site" "site" {
   auto_install = false
 }
 
-# Pages creates the necessary Cloudflare DNS mapping for a hostname in the
-# managed zone. Do not create a competing CNAME record for these hostnames.
+# Associate the hostname with Pages before creating its DNS record. A standalone
+# CNAME to a Pages project does not activate the Pages custom domain.
 resource "cloudflare_pages_domain" "site" {
   for_each = local.custom_domains
 
@@ -79,4 +82,29 @@ resource "cloudflare_pages_domain" "site" {
   name         = each.value
 
   depends_on = [cloudflare_zone.site]
+}
+
+# Manage the CNAME records in Terraform so the initial apply configures both
+# the Pages custom domain and its DNS mapping without dashboard changes.
+resource "cloudflare_dns_record" "pages" {
+  for_each = local.custom_domains
+
+  zone_id = local.zone_id
+  name    = each.value
+  type    = "CNAME"
+  content = cloudflare_pages_project.site.subdomain
+  proxied = true
+  ttl     = 1
+
+  depends_on = [cloudflare_pages_domain.site]
+
+  lifecycle {
+    precondition {
+      condition = alltrue([
+        for domain in local.custom_domains :
+        domain == var.zone_name || endswith(domain, ".${var.zone_name}")
+      ])
+      error_message = "domain_name and additional_custom_domains must be the zone_name or a subdomain of it when Terraform manages their DNS records."
+    }
+  }
 }

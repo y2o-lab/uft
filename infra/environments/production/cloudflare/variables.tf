@@ -1,14 +1,20 @@
 variable "cloudflare_account_id" {
   type        = string
-  default     = null
+  default     = "06109ed4642ce78eccfe61da32f44c9b"
   nullable    = true
-  description = "Cloudflare account ID that owns the Pages project and zone. Set via terraform.tfvars or TF_VAR_cloudflare_account_id."
+  description = "Cloudflare account ID that owns the Pages project and zone. Set the non-secret production value here before applying."
+}
+
+variable "zone_name" {
+  type        = string
+  default     = "yuno-i.com"
+  description = "Existing Cloudflare zone that owns the uft.yuno-i.com hostname."
 }
 
 variable "domain_name" {
   type        = string
-  default     = "example.com"
-  description = "Apex domain to manage in Cloudflare. Replace the safe example before applying."
+  default     = "uft.yuno-i.com"
+  description = "Hostname to attach to the Pages project and use for Web Analytics."
 }
 
 variable "manage_zone" {

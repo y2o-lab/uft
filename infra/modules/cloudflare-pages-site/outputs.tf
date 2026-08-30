@@ -15,5 +15,5 @@ output "custom_domains" {
 
 output "zone_id" {
   description = "ID of the created or existing Cloudflare zone."
-  value       = var.manage_zone ? cloudflare_zone.site[0].id : data.cloudflare_zone.site[0].id
+  value       = local.zone_id
 }

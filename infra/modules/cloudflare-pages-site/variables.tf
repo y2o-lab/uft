@@ -4,9 +4,19 @@ variable "cloudflare_account_id" {
   description = "Cloudflare account ID that owns the Pages project and zone."
 }
 
+variable "zone_name" {
+  type        = string
+  description = "Existing or newly created Cloudflare zone that owns the Pages custom-domain hostname."
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$", var.zone_name))
+    error_message = "zone_name must be a valid DNS domain name without a protocol or path."
+  }
+}
+
 variable "domain_name" {
   type        = string
-  description = "Apex domain to manage in Cloudflare."
+  description = "Hostname to attach to the Cloudflare Pages project and use for Web Analytics."
 
   validation {
     condition     = can(regex("^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$", var.domain_name))
