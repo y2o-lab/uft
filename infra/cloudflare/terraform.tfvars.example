@@ -1,0 +1,12 @@
+# Non-secret deployment settings. Copy this file to terraform.tfvars for local
+# use, then replace these example values. Do not commit terraform.tfvars.
+cloudflare_account_id = "00000000000000000000000000000000"
+domain_name           = "example.com"
+pages_project_name    = "uft"
+
+# Set true only for a new zone. After applying, delegate the returned
+# Cloudflare nameservers at the domain registrar, then wait for zone activation.
+manage_zone = false
+
+# Optional: attach both the apex and www hostname to Pages.
+# additional_custom_domains = ["www.example.com"]
