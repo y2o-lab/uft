@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { defaultWorkspace } from "../domain/workspace";
 import { emptyDiagram } from "../workspace/workspace-service";
-import { graphToMermaid, graphToSvg, validateGraph } from "./diagram";
+import {
+  graphToMermaid,
+  graphToSvg,
+  validateDiagramDocument,
+  validateGraph,
+} from "./diagram";
 
 describe("diagram transfer", () => {
   it("validates and exports a supported flow", () => {
@@ -33,6 +38,15 @@ describe("diagram transfer", () => {
         nodes: [],
         edges: [{ id: "broken", source: "missing", target: "missing" }],
         viewport: { x: 0, y: 0, zoom: 1 },
+      }),
+    ).toBe(false);
+    expect(
+      validateDiagramDocument({
+        entryId: "diagram",
+        formatVersion: 1,
+        graph: emptyDiagram("diagram").graph,
+        previewAssetId: null,
+        mermaidSource: null,
       }),
     ).toBe(false);
   });

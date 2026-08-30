@@ -102,6 +102,7 @@ let releaseWriterLock: (() => void) | undefined;
 let acquiringWriterLock = false;
 let writerLockReady: Promise<void> | undefined;
 let resolveWriterLockReady: (() => void) | undefined;
+const diagramSaveVersions = new Map<string, number>();
 let DiagramEditor = $state<Component<{ diagram: import("./lib/domain/workspace").DiagramDocument; onChange: (diagram: import("./lib/domain/workspace").DiagramDocument) => void }> | null>(null);
 
 let activeEntry = $derived(
@@ -284,9 +285,11 @@ $effect(() => {
     );
       await hydrateAssets();
       status =
-      repository.mode === "opfs-sqlite"
-        ? "このブラウザに安全に保存されます"
-        : "互換保存モードで動作中";
+      writerMode === "read-only"
+        ? "別の UFT タブが書き込み中です（読み取り専用）"
+        : repository.mode === "opfs-sqlite"
+          ? "このブラウザに安全に保存されます"
+          : "互換保存モードで動作中";
   } catch (error) {
     statusTone = "error";
     status =
@@ -670,7 +673,9 @@ async function addImage(file: File): Promise<void> {
   }
 }
 
-async function saveDiagram(diagram: import("./lib/domain/workspace").DiagramDocument): Promise<void> {
+async function saveDiagram(
+  diagram: import("./lib/domain/workspace").DiagramDocument,
+): Promise<boolean> {
   if (
     !workspace ||
     !repository ||
@@ -678,30 +683,69 @@ async function saveDiagram(diagram: import("./lib/domain/workspace").DiagramDocu
     activeEntry.kind !== "diagram" ||
     !canWrite()
   )
-    return;
+    return false;
+  const targetWorkspace = workspace;
   const entry = activeEntry;
+  const saveKey = `${targetWorkspace.id}:${entry.id}`;
+  const saveVersion = (diagramSaveVersions.get(saveKey) ?? 0) + 1;
+  diagramSaveVersions.set(saveKey, saveVersion);
   const svg = graphToSvg(diagram.graph);
-  const bytes = new TextEncoder().encode(svg).buffer;
+  const bytes = new TextEncoder().encode(svg);
   let asset = diagram.previewAssetId
-    ? workspace.assets.find((candidate) => candidate.id === diagram.previewAssetId)
+    ? targetWorkspace.assets.find((candidate) => candidate.id === diagram.previewAssetId)
     : undefined;
   const path = asset?.path ?? diagramAssetPath(entry);
-  asset ??= workspace.assets.find((candidate) => candidate.path === path);
+  asset ??= targetWorkspace.assets.find((candidate) => candidate.path === path);
   if (!asset) {
-    asset = { id: newId("asset"), workspaceId: workspace.id, path, mediaType: "image/svg+xml", byteSize: bytes.byteLength, checksum: "generated", createdAt: new Date().toISOString() };
-    workspace.assets.push(asset);
+    asset = { id: newId("asset"), workspaceId: targetWorkspace.id, path, mediaType: "image/svg+xml", byteSize: bytes.byteLength, checksum: "", createdAt: new Date().toISOString() };
+    targetWorkspace.assets.push(asset);
   }
   asset.byteSize = bytes.byteLength;
-  await repository.putAsset(asset, bytes);
-  const previousUrl = assetUrls[path];
-  if (previousUrl) URL.revokeObjectURL(previousUrl);
-  assetUrls = { ...assetUrls, [path]: URL.createObjectURL(new Blob([bytes], { type: asset.mediaType })) };
+  asset.checksum = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
   const result = graphToMermaid(diagram.graph);
-  workspace.diagrams[entry.id] = { ...diagram, previewAssetId: asset.id, mermaidSource: result.source ?? null, updatedAt: new Date().toISOString() };
-  scheduleSave();
+  const updatedAt = new Date().toISOString();
+  targetWorkspace.diagrams[entry.id] = {
+    ...diagram,
+    previewAssetId: asset.id,
+    mermaidSource: result.source ?? null,
+    updatedAt,
+  };
+  entry.updatedAt = updatedAt;
+  try {
+    // WorkerRepository transfers the buffer to its Worker. Keep a separate
+    // copy for the immediate preview URL so it is not detached on OPFS builds.
+    await repository.putAsset(asset, bytes.slice().buffer);
+    if (
+      workspace !== targetWorkspace ||
+      saveVersion !== diagramSaveVersions.get(saveKey)
+    )
+      return true;
+    const previousUrl = assetUrls[path];
+    if (previousUrl) URL.revokeObjectURL(previousUrl);
+    assetUrls = {
+      ...assetUrls,
+      [path]: URL.createObjectURL(
+        new Blob([bytes], { type: asset.mediaType }),
+      ),
+    };
+    scheduleSave();
+    return true;
+  } catch (error) {
+    if (
+      workspace === targetWorkspace &&
+      saveVersion === diagramSaveVersions.get(saveKey)
+    ) {
+      status = "SVG の保存に失敗しました";
+      statusTone = "error";
+      notify(error);
+    }
+    return false;
+  }
 }
 
-function insertDiagramReference(): void {
+async function insertDiagramReference(): Promise<void> {
   if (
     !workspace ||
     !activeEntry ||
@@ -709,19 +753,22 @@ function insertDiagramReference(): void {
     !canWrite()
   )
     return;
-  const diagramName = activeEntry.name;
-  const path = activeDiagram?.previewAssetId
-    ? workspace.assets.find((asset) => asset.id === activeDiagram.previewAssetId)
-        ?.path
-    : diagramAssetPath(activeEntry);
+  const targetWorkspace = workspace;
+  const entry = activeEntry;
+  const diagram = activeDiagram;
+  if (!diagram || !(await saveDiagram(diagram))) return;
+  if (workspace !== targetWorkspace || activeEntryId !== entry.id) return;
+  const path = targetWorkspace.assets.find(
+    (asset) => asset.id === targetWorkspace.diagrams[entry.id]?.previewAssetId,
+  )?.path;
   if (!path) {
     notify(new Error("SVG を保存してから Markdown に挿入してください。"));
     return;
   }
-  const document = activeEntries(workspace).find((entry) => entry.kind === "markdown");
+  const document = activeEntries(targetWorkspace).find((item) => item.kind === "markdown");
   if (!document) return;
   activeEntryId = document.id;
-  pendingEditorInsertion = `![${diagramName}](<${relativeAssetPath(document.path, path)}>)`;
+  pendingEditorInsertion = `![${entry.name}](<${relativeAssetPath(document.path, path)}>)`;
 }
 
 function setEditorInsertionHandler(handler: (text: string) => void): void {
@@ -756,6 +803,11 @@ async function restore(file: File): Promise<void> {
     }
     workspace = imported.workspace;
     activeEntryId = workspace.lastOpenedEntryId;
+    expanded = new Set(
+      activeEntries(workspace)
+        .filter((entry) => entry.kind === "folder")
+        .map((entry) => entry.id),
+    );
     if (!(await saveNow())) return;
     await hydrateAssets();
     status = "新しいワークスペースとして復元しました";

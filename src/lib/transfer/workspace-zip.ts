@@ -1,10 +1,11 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
-import { validateGraph } from "../diagrams/diagram";
+import { validateDiagramDocument } from "../diagrams/diagram";
 import { normalizePath } from "../domain/tree";
 import {
   type Asset,
   cloneWorkspace,
   newId,
+  WORKSPACE_SCHEMA_VERSION,
   type Workspace,
 } from "../domain/workspace";
 import type { WorkspaceRepository } from "../storage/workspace-repository";
@@ -13,6 +14,9 @@ export const ZIP_FORMAT_VERSION = 1;
 export const MAX_ZIP_BYTES = 200 * 1024 * 1024;
 export const MAX_UNZIPPED_BYTES = 500 * 1024 * 1024;
 export const MAX_ZIP_ENTRIES = 2_000;
+const FOLDER_MARKER_PREFIX = "folders/";
+const FOLDER_MARKER_SUFFIX = ".uft-folder";
+const FOLDER_MARKER_MIME = "application/vnd.uft.folder";
 
 export type ZipManifest = {
   formatVersion: number;
@@ -23,8 +27,21 @@ export type ZipManifest = {
     checksum: string;
     size: number;
     assetId?: string;
+    entry?: { kind: "folder" | "markdown" | "diagram"; sortOrder: number };
   }>;
 };
+
+function isFolderMarker(path: string): boolean {
+  return (
+    path.startsWith(FOLDER_MARKER_PREFIX) && path.endsWith(FOLDER_MARKER_SUFFIX)
+  );
+}
+
+function folderPathFromMarker(path: string): string {
+  return path
+    .slice(FOLDER_MARKER_PREFIX.length)
+    .slice(0, -FOLDER_MARKER_SUFFIX.length);
+}
 
 function validateManifest(
   value: unknown,
@@ -54,7 +71,12 @@ function validateManifest(
       !/^[a-f0-9]{64}$/i.test(file.checksum) ||
       !Number.isSafeInteger(file.size) ||
       file.size < 0 ||
-      (file.assetId !== undefined && typeof file.assetId !== "string")
+      (file.assetId !== undefined && typeof file.assetId !== "string") ||
+      (file.entry !== undefined &&
+        (!file.entry ||
+          !["folder", "markdown", "diagram"].includes(file.entry.kind) ||
+          !Number.isSafeInteger(file.entry.sortOrder) ||
+          file.entry.sortOrder < 0))
     )
       throw new Error("マニフェスト内のファイル情報が不正です。");
     if (listedPaths.has(file.path))
@@ -62,12 +84,23 @@ function validateManifest(
     if (
       !file.path.endsWith(".md") &&
       !(file.path.startsWith("diagrams/") && file.path.endsWith(".uft.json")) &&
+      !isFolderMarker(file.path) &&
       !file.path.startsWith("assets/")
     )
       throw new Error(`対応していない ZIP ファイルです: ${file.path}`);
     const content = archive[file.path];
     if (!content || content.byteLength !== file.size)
       throw new Error(`ファイル検証に失敗しました: ${file.path}`);
+    if (
+      isFolderMarker(file.path) &&
+      (file.mime !== FOLDER_MARKER_MIME ||
+        file.size !== 0 ||
+        file.assetId !== undefined ||
+        file.entry?.kind !== "folder" ||
+        normalizePath(folderPathFromMarker(file.path)) !==
+          folderPathFromMarker(file.path))
+    )
+      throw new Error(`フォルダ情報が不正です: ${file.path}`);
     listedPaths.add(file.path);
   }
   for (const path of Object.keys(archive)) {
@@ -103,6 +136,7 @@ export async function exportWorkspace(
     bytes: Uint8Array,
     mime: string,
     assetId?: string,
+    entry?: ZipManifest["files"][number]["entry"],
   ) => {
     if (normalizePath(path) !== path || path in output)
       throw new Error(`ZIP 内のファイルパスが重複または不正です: ${path}`);
@@ -113,8 +147,20 @@ export async function exportWorkspace(
       checksum: await checksum(bytes),
       size: bytes.byteLength,
       ...(assetId ? { assetId } : {}),
+      ...(entry ? { entry } : {}),
     });
   };
+  for (const entry of snapshot.entries.filter(
+    (item) => !item.deletedAt && item.kind === "folder",
+  )) {
+    await addFile(
+      `${FOLDER_MARKER_PREFIX}${entry.path}${FOLDER_MARKER_SUFFIX}`,
+      new Uint8Array(),
+      FOLDER_MARKER_MIME,
+      undefined,
+      { kind: "folder", sortOrder: entry.sortOrder },
+    );
+  }
   for (const entry of snapshot.entries.filter(
     (item) => !item.deletedAt && item.kind === "markdown",
   )) {
@@ -123,7 +169,10 @@ export async function exportWorkspace(
       throw new Error(`Markdown 文書を読み出せませんでした: ${entry.path}`);
     const content = document.content;
     const bytes = strToU8(content);
-    await addFile(entry.path, bytes, "text/markdown");
+    await addFile(entry.path, bytes, "text/markdown", undefined, {
+      kind: "markdown",
+      sortOrder: entry.sortOrder,
+    });
   }
   for (const entry of snapshot.entries.filter(
     (item) => !item.deletedAt && item.kind === "diagram",
@@ -131,9 +180,12 @@ export async function exportWorkspace(
     const diagram = snapshot.diagrams[entry.id];
     if (!diagram)
       throw new Error(`図表データを読み出せませんでした: ${entry.path}`);
-    const path = `diagrams/${entry.path.replace(/\.[^.]+$/, "")}.uft.json`;
+    const path = `diagrams/${entry.path}.uft.json`;
     const bytes = strToU8(JSON.stringify(diagram));
-    await addFile(path, bytes, "application/vnd.uft.diagram+json");
+    await addFile(path, bytes, "application/vnd.uft.diagram+json", undefined, {
+      kind: "diagram",
+      sortOrder: entry.sortOrder,
+    });
   }
   for (const asset of snapshot.assets) {
     const data = await repository.getAsset(asset.id);
@@ -164,11 +216,37 @@ function safeZipEntries(bytes: Uint8Array): Record<string, Uint8Array> {
   if (bytes.byteLength > MAX_ZIP_BYTES)
     throw new Error("ZIP は 200 MB 以下にしてください。");
   let entries: Record<string, Uint8Array>;
+  let declaredEntries = 0;
+  let declaredTotal = 0;
+  let preflightError: string | undefined;
   try {
-    entries = unzipSync(bytes);
+    entries = unzipSync(bytes, {
+      // fflate calls this while reading the central directory, before it
+      // allocates the output buffer for a compressed entry. Never trust a ZIP
+      // file enough to expand it before checking its declared output size.
+      filter: (file) => {
+        if (preflightError) return false;
+        declaredEntries += 1;
+        if (declaredEntries > MAX_ZIP_ENTRIES) {
+          preflightError = "ZIP 内のファイル数が上限を超えています。";
+          return false;
+        }
+        if (
+          !Number.isSafeInteger(file.originalSize) ||
+          file.originalSize < 0 ||
+          file.originalSize > MAX_UNZIPPED_BYTES - declaredTotal
+        ) {
+          preflightError = "ZIP の展開サイズが上限を超えています。";
+          return false;
+        }
+        declaredTotal += file.originalSize;
+        return true;
+      },
+    });
   } catch {
     throw new Error("ZIP を読み取れません。壊れている可能性があります。");
   }
+  if (preflightError) throw new Error(preflightError);
   const paths = Object.keys(entries);
   if (paths.length > MAX_ZIP_ENTRIES)
     throw new Error("ZIP 内のファイル数が上限を超えています。");
@@ -199,7 +277,7 @@ export async function importWorkspace(
   const source = cloneWorkspace({
     id: newId("workspace"),
     name: manifest.workspace.name,
-    schemaVersion: 1,
+    schemaVersion: WORKSPACE_SCHEMA_VERSION,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     lastOpenedEntryId: null,
@@ -210,10 +288,10 @@ export async function importWorkspace(
   });
   const directories = new Map<string, string>();
   const restoredAssetIds = new Map<string, string>();
-  const addDirectories = (path: string) => {
+  const ensureDirectory = (path: string) => {
     let parentId: string | null = null;
     let current = "";
-    for (const name of path.split("/").slice(0, -1)) {
+    for (const name of path.split("/")) {
       current = current ? `${current}/${name}` : name;
       let id = directories.get(current);
       if (!id) {
@@ -236,12 +314,51 @@ export async function importWorkspace(
     }
     return parentId;
   };
+  const addDirectories = (path: string) => {
+    const parentPath = path.split("/").slice(0, -1).join("/");
+    return parentPath ? ensureDirectory(parentPath) : null;
+  };
+  const logicalEntries = new Map<string, "folder" | "markdown" | "diagram">();
+  for (const file of manifest.files) {
+    const kind = isFolderMarker(file.path)
+      ? "folder"
+      : file.path.endsWith(".md")
+        ? "markdown"
+        : file.path.startsWith("diagrams/") && file.path.endsWith(".uft.json")
+          ? "diagram"
+          : null;
+    if (!kind) continue;
+    const path =
+      kind === "folder"
+        ? folderPathFromMarker(file.path)
+        : kind === "diagram"
+          ? file.path.slice("diagrams/".length).replace(/\.uft\.json$/, "")
+          : file.path;
+    if (logicalEntries.has(path))
+      throw new Error(`ZIP 内の項目パスが重複しています: ${path}`);
+    logicalEntries.set(path, kind);
+  }
+  for (const path of logicalEntries.keys()) {
+    let parentPath = "";
+    for (const segment of path.split("/").slice(0, -1)) {
+      parentPath = parentPath ? `${parentPath}/${segment}` : segment;
+      const parentKind = logicalEntries.get(parentPath);
+      if (parentKind && parentKind !== "folder")
+        throw new Error(
+          `ファイルをフォルダとして扱うことはできません: ${parentPath}`,
+        );
+    }
+  }
   const binaries = new Map<string, ArrayBuffer>();
   for (const file of manifest.files) {
     const content = entries[file.path];
     if (!content || (await checksum(content)) !== file.checksum)
       throw new Error(`ファイル検証に失敗しました: ${file.path}`);
-    if (file.path.endsWith(".md")) {
+    if (isFolderMarker(file.path)) {
+      const id = ensureDirectory(folderPathFromMarker(file.path));
+      const folder = source.entries.find((entry) => entry.id === id);
+      if (folder && file.entry) folder.sortOrder = file.entry.sortOrder;
+    } else if (file.path.endsWith(".md")) {
       const id = newId("markdown");
       const name = file.path.split("/").at(-1);
       if (!name) throw new Error(`ファイル名が不正です: ${file.path}`);
@@ -253,7 +370,7 @@ export async function importWorkspace(
         kind: "markdown",
         name,
         path: file.path,
-        sortOrder: source.entries.length,
+        sortOrder: file.entry?.sortOrder ?? source.entries.length,
         createdAt: source.createdAt,
         updatedAt: source.updatedAt,
         deletedAt: null,
@@ -275,11 +392,7 @@ export async function importWorkspace(
       } catch {
         throw new Error(`図表データが不正です: ${file.path}`);
       }
-      if (
-        !diagram ||
-        typeof diagram !== "object" ||
-        !validateGraph((diagram as { graph?: unknown }).graph)
-      )
+      if (!validateDiagramDocument(diagram))
         throw new Error(`図表データが不正です: ${file.path}`);
       const sourcePath = file.path
         .slice("diagrams/".length)
@@ -297,7 +410,7 @@ export async function importWorkspace(
         kind: "diagram",
         name: fileName,
         path: sourcePath,
-        sortOrder: source.entries.length,
+        sortOrder: file.entry?.sortOrder ?? source.entries.length,
         createdAt: source.createdAt,
         updatedAt: source.updatedAt,
         deletedAt: null,

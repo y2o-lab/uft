@@ -1,4 +1,4 @@
-import type { DiagramGraph } from "../domain/workspace";
+import type { DiagramDocument, DiagramGraph } from "../domain/workspace";
 
 export function validateGraph(graph: unknown): graph is DiagramGraph {
   if (!graph || typeof graph !== "object") return false;
@@ -46,6 +46,25 @@ export function validateGraph(graph: unknown): graph is DiagramGraph {
     edgeIds.add(edge.id);
   }
   return true;
+}
+
+export function validateDiagramDocument(
+  diagram: unknown,
+): diagram is DiagramDocument {
+  if (!diagram || typeof diagram !== "object") return false;
+  const candidate = diagram as Partial<DiagramDocument>;
+  return (
+    candidate.formatVersion === 1 &&
+    typeof candidate.entryId === "string" &&
+    Boolean(candidate.entryId) &&
+    validateGraph(candidate.graph) &&
+    (candidate.previewAssetId === null ||
+      typeof candidate.previewAssetId === "string") &&
+    (candidate.mermaidSource === null ||
+      typeof candidate.mermaidSource === "string") &&
+    typeof candidate.updatedAt === "string" &&
+    Boolean(candidate.updatedAt)
+  );
 }
 
 export function graphToMermaid(graph: DiagramGraph): {
