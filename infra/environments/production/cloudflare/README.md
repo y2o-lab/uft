@@ -1,6 +1,8 @@
-# Cloudflare infrastructure
+# Production Cloudflare infrastructure
 
-This Terraform root manages the Cloudflare zone, Pages project, Pages custom domains, and Cloudflare Web Analytics. UFT is a static, local-first SPA with no server-side application code or data store, so **Cloudflare Pages** is preferable to a Worker: it provides static global delivery without an unnecessary runtime. Deployments are uploaded directly by GitHub Actions; the Pages project is intentionally not connected to Cloudflare's Git integration.
+This is the deployable production root module. It configures the HCP Terraform
+state backend and Cloudflare provider, then instantiates
+`../../../modules/cloudflare-pages-site`.
 
 ## What Terraform manages
 
@@ -9,13 +11,13 @@ This Terraform root manages the Cloudflare zone, Pages project, Pages custom dom
 - The apex domain and any optional additional custom domains on that Pages project.
 - A Web Analytics site for the configured domain, attached to the Pages project.
 
-The Web Analytics beacon is injected by Cloudflare Pages on the deployment
-following the Terraform apply. The site is a single-page application, and the
-current Cloudflare beacon automatically tracks its soft navigations. The token
-is managed by Cloudflare and is not committed to this repository. The Pages CSP
-also permits only the beacon's script host and reporting endpoint.
+The project is a static, local-first SPA with no server-side application code
+or data store, so Cloudflare Pages is preferable to a Worker. Deployments are
+uploaded directly by GitHub Actions; the Pages project is intentionally not
+connected to Cloudflare's Git integration.
 
-When adding a custom domain to a Pages project, Cloudflare Pages owns the required DNS mapping. Do not add a separate CNAME for the same hostname.
+When adding a custom domain to a Pages project, Cloudflare Pages owns the
+required DNS mapping. Do not add a separate CNAME for the same hostname.
 
 ## One-time setup
 
@@ -27,7 +29,7 @@ When adding a custom domain to a Pages project, Cloudflare Pages owns the requir
 ## Local commands
 
 ```bash
-cd infra/cloudflare
+cd infra/environments/production/cloudflare
 export CLOUDFLARE_API_TOKEN='…' # enter locally; do not save it in shell history
 export TF_TOKEN_app_terraform_io='…'
 terraform init -backend-config=backend.hcl
@@ -41,9 +43,17 @@ If a Pages project or custom domain already exists, import it before the first
 apply so Terraform adopts it instead of attempting to create a duplicate:
 
 ```bash
-terraform import cloudflare_pages_project.site "$CLOUDFLARE_ACCOUNT_ID/$PAGES_PROJECT_NAME"
-terraform import 'cloudflare_pages_domain.site["example.com"]' "$CLOUDFLARE_ACCOUNT_ID/$PAGES_PROJECT_NAME/example.com"
+terraform import module.site.cloudflare_pages_project.site "$CLOUDFLARE_ACCOUNT_ID/$PAGES_PROJECT_NAME"
+terraform import 'module.site.cloudflare_pages_domain.site["example.com"]' "$CLOUDFLARE_ACCOUNT_ID/$PAGES_PROJECT_NAME/example.com"
 ```
+
+## State migration from the previous layout
+
+This root replaces the former `infra/cloudflare` entry point while retaining
+the same HCP Terraform workspace. The `moved` blocks in `main.tf` migrate the
+managed resource addresses into `module.site`; run `terraform plan` before the
+first apply and confirm that the plan reports moves rather than replacement.
+Do not use the former directory after this change.
 
 ## GitHub Actions configuration
 
@@ -60,7 +70,3 @@ The workflows use GitHub Actions variables for non-secret, account-specific valu
 | `TF_API_TOKEN` | Secret | HCP Terraform user or team token |
 
 Protect the `production` GitHub Environment with required reviewers. Terraform plans run for pull requests targeting `release-infra`, and Terraform applies after they merge into `release-infra`. The Pages deployment runs after an application change merges into `release`. Both apply and deployment jobs use the protected environment.
-
-## Adding another provider
-
-Create another independent root such as `infra/aws` or `infra/vercel`, with its own `versions.tf`, state backend, and CI workflow. Keep shared application build steps at the repository root, rather than coupling provider configurations together.
