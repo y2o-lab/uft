@@ -26,9 +26,11 @@ Cloudflare Pages では build command に `bun run build`、output directory に
 
 UFT は OPFS 上の SQLite を使い、対応しない環境では IndexedDB の互換保存モードへ切り替えます。ユーザーのコンテンツをサーバーへ送信しません。ブラウザのサイトデータを削除するとローカルデータも失われるため、**ZIP バックアップ**を定期的にダウンロードしてください。
 
+保存形式を更新する際は、旧形式を読む前方マイグレーションを追加します。移行前にはこのブラウザ内に完全な世代バックアップを残しますが、配信のロールバックは保存形式の復旧手段にはしません。データ形式変更後の不具合は、原則として修正版をロールフォワードで配信します。
+
 ZIP は文書、画像、SVG、図表 JSON を含む再編集可能なバックアップです。復元時はパス走査・サイズ・チェックサム・マニフェストを検証し、既存データを上書きせず新しいワークスペースとして開きます。単体 `.md` のダウンロードでは画像が相対参照になるため、アセットも渡す場合は ZIP を使います。
 
-`public/_headers` は SQLite WASM の OPFS モードに必要な cross-origin isolation と静的セキュリティヘッダーを、`public/_redirects` は SPA フォールバックを提供します。Pages Functions や外部データストアは不要です。
+`public/_headers` は SQLite WASM の OPFS モードに必要な cross-origin isolation と静的セキュリティヘッダーを提供します。Cloudflare Pages はトップレベルの `404.html` がない静的 SPA を自動でルートへフォールバックするため、追加のリダイレクト設定は不要です。Pages Functions や外部データストアは不要です。
 
 ## 文書を Markdown に変換
 

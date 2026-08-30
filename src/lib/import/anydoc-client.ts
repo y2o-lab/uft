@@ -72,12 +72,20 @@ export class AnyDocClient {
       },
     );
     this.#worker.addEventListener("error", (event) => {
-      const error = new DocumentConversionError(
-        event.message || "変換 Worker の起動に失敗しました。",
-        "unknown",
+      this.#rejectPending(
+        new DocumentConversionError(
+          event.message || "変換 Worker の起動に失敗しました。",
+          "unknown",
+        ),
       );
-      for (const pending of this.#pending.values()) pending.reject(error);
-      this.#pending.clear();
+    });
+    this.#worker.addEventListener("messageerror", () => {
+      this.#rejectPending(
+        new DocumentConversionError(
+          "変換 Worker と通信できません。",
+          "unknown",
+        ),
+      );
     });
   }
 
@@ -107,7 +115,22 @@ export class AnyDocClient {
         },
         abort: onAbort,
       });
-      this.#worker.postMessage({ type: "convert", id, bytes, format }, [bytes]);
+      try {
+        this.#worker.postMessage({ type: "convert", id, bytes, format }, [
+          bytes,
+        ]);
+      } catch (error) {
+        this.#pending.delete(id);
+        signal?.removeEventListener("abort", onAbort);
+        reject(
+          error instanceof Error
+            ? error
+            : new DocumentConversionError(
+                "変換 Worker と通信できません。",
+                "unknown",
+              ),
+        );
+      }
     });
   }
 
@@ -115,6 +138,10 @@ export class AnyDocClient {
     for (const pending of this.#pending.values()) pending.abort();
     this.#pending.clear();
     this.#worker.terminate();
+  }
+  #rejectPending(error: Error): void {
+    for (const pending of this.#pending.values()) pending.reject(error);
+    this.#pending.clear();
   }
 }
 

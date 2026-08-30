@@ -1,4 +1,7 @@
-export const WORKSPACE_SCHEMA_VERSION = 1;
+// This describes the serialized workspace object, independently from the
+// SQLite/IndexedDB container schema. Keep migrations additive so an emergency
+// frontend rollback can still open data written by a newer release.
+export const WORKSPACE_SCHEMA_VERSION = 2;
 
 export type EntryKind = "folder" | "markdown" | "diagram";
 

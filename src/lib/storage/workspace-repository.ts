@@ -5,13 +5,23 @@ import {
   type Workspace,
 } from "../domain/workspace";
 
+export type MigrationSnapshot = {
+  id: string;
+  workspaceId: string;
+  schemaVersion: number;
+  createdAt: string;
+  reason: string;
+};
+
 type Method =
   | "open"
   | "list"
   | "save"
   | "putAsset"
   | "getAsset"
-  | "deleteAsset";
+  | "deleteAsset"
+  | "createMigrationSnapshot"
+  | "restoreMigrationSnapshot";
 type WorkerResponse = {
   id: string;
   ok: boolean;
@@ -28,6 +38,11 @@ export interface WorkspaceRepository {
   putAsset(asset: Asset, bytes: ArrayBuffer): Promise<void>;
   getAsset(id: string): Promise<ArrayBuffer | null>;
   deleteAsset(id: string): Promise<void>;
+  createMigrationSnapshot(
+    workspace: Workspace,
+    reason: string,
+  ): Promise<MigrationSnapshot>;
+  restoreMigrationSnapshot(id: string): Promise<Workspace>;
   readonly mode: "opfs-sqlite" | "indexeddb";
 }
 
@@ -63,6 +78,14 @@ class WorkerRepository implements WorkspaceRepository {
           );
       },
     );
+    this.#worker.addEventListener("error", (event) => {
+      this.#rejectPending(
+        new Error(event.message || "SQLite 保存 Worker の起動に失敗しました。"),
+      );
+    });
+    this.#worker.addEventListener("messageerror", () => {
+      this.#rejectPending(new Error("SQLite 保存 Worker と通信できません。"));
+    });
   }
 
   #call<T>(
@@ -81,7 +104,17 @@ class WorkerRepository implements WorkspaceRepository {
         reject,
         timer,
       });
-      this.#worker.postMessage({ id, method, payload }, transfer ?? []);
+      try {
+        this.#worker.postMessage({ id, method, payload }, transfer ?? []);
+      } catch (error) {
+        clearTimeout(timer);
+        this.#pending.delete(id);
+        reject(
+          error instanceof Error
+            ? error
+            : new Error("SQLite 保存 Worker と通信できません。"),
+        );
+      }
     });
   }
 
@@ -107,10 +140,34 @@ class WorkerRepository implements WorkspaceRepository {
   deleteAsset(id: string): Promise<void> {
     return this.#enqueue(() => this.#call("deleteAsset", id));
   }
-  #enqueue(operation: () => Promise<void>): Promise<void> {
+  createMigrationSnapshot(
+    workspace: Workspace,
+    reason: string,
+  ): Promise<MigrationSnapshot> {
+    return this.#enqueue(() =>
+      this.#call("createMigrationSnapshot", {
+        workspace: cloneWorkspace(workspace),
+        reason,
+      }),
+    );
+  }
+  restoreMigrationSnapshot(id: string): Promise<Workspace> {
+    return this.#enqueue(() => this.#call("restoreMigrationSnapshot", id));
+  }
+  #enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.#queue.then(operation, operation);
-    this.#queue = next.catch(() => undefined);
+    this.#queue = next.then(
+      () => undefined,
+      () => undefined,
+    );
     return next;
+  }
+  #rejectPending(error: Error): void {
+    for (const pending of this.#pending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.#pending.clear();
   }
 }
 
@@ -121,10 +178,30 @@ class IndexedDbRepository implements WorkspaceRepository {
   #openDb(): Promise<IDBDatabase> {
     if (!this.#database)
       this.#database = new Promise((resolve, reject) => {
-        const request = indexedDB.open("uft-fallback", 1);
-        request.onupgradeneeded = () => {
-          request.result.createObjectStore("workspace");
-          request.result.createObjectStore("assets");
+        const request = indexedDB.open("uft-fallback", 2);
+        request.onupgradeneeded = (event: IDBVersionChangeEvent) => {
+          const database = request.result;
+          const transaction = request.transaction;
+          if (!transaction)
+            throw new Error("IndexedDB の初期化に失敗しました。");
+          const workspaces = database.objectStoreNames.contains("workspace")
+            ? transaction.objectStore("workspace")
+            : database.createObjectStore("workspace");
+          if (!database.objectStoreNames.contains("assets"))
+            database.createObjectStore("assets");
+          const metadata = database.objectStoreNames.contains("metadata")
+            ? transaction.objectStore("metadata")
+            : database.createObjectStore("metadata");
+          if (event.oldVersion < 2) {
+            const legacyWorkspace = workspaces.get("active");
+            legacyWorkspace.onsuccess = () => {
+              const workspace = legacyWorkspace.result as Workspace | undefined;
+              if (!workspace) return;
+              workspaces.put(cloneWorkspace(workspace), workspace.id);
+              metadata.put(workspace.id, "activeWorkspaceId");
+              workspaces.delete("active");
+            };
+          }
         };
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
@@ -153,27 +230,66 @@ class IndexedDbRepository implements WorkspaceRepository {
       request.onerror = () => reject(request.error);
     });
   }
-  open(): Promise<Workspace> {
-    return this.#value<Workspace>("workspace", "active").then(
-      (workspace) => workspace ?? cloneWorkspace(defaultWorkspace),
-    );
+  async #values<T>(store: string): Promise<T[]> {
+    const db = await this.#openDb();
+    return new Promise((resolve, reject) => {
+      const request = db
+        .transaction(store, "readonly")
+        .objectStore(store)
+        .getAll();
+      request.onsuccess = () => resolve(request.result as T[]);
+      request.onerror = () => reject(request.error);
+    });
+  }
+  async #saveWorkspace(workspace: Workspace): Promise<void> {
+    const db = await this.#openDb();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(
+        ["workspace", "metadata"],
+        "readwrite",
+      );
+      transaction
+        .objectStore("workspace")
+        .put(cloneWorkspace(workspace), workspace.id);
+      transaction
+        .objectStore("metadata")
+        .put(workspace.id, "activeWorkspaceId");
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  }
+  async open(id?: string): Promise<Workspace> {
+    const activeId =
+      id ?? (await this.#value<string>("metadata", "activeWorkspaceId"));
+    let workspace = activeId
+      ? await this.#value<Workspace>("workspace", activeId)
+      : undefined;
+    if (!workspace) {
+      const workspaces = await this.#values<Workspace>("workspace");
+      workspace = workspaces
+        .filter((candidate) => candidate?.id && candidate.id !== "active")
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    }
+    if (!workspace) return cloneWorkspace(defaultWorkspace);
+    if (id && workspace.id === id)
+      await this.#put("metadata", "activeWorkspaceId", workspace.id);
+    return cloneWorkspace(workspace);
   }
   async listWorkspaces(): Promise<
     Array<{ id: string; name: string; updatedAt: string }>
   > {
-    const workspace = await this.open();
-    return [
-      {
+    return (await this.#values<Workspace>("workspace"))
+      .filter((workspace) => workspace?.id && workspace.id !== "active")
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .map((workspace) => ({
         id: workspace.id,
         name: workspace.name,
         updatedAt: workspace.updatedAt,
-      },
-    ];
+      }));
   }
   save(workspace: Workspace): Promise<void> {
-    return this.#enqueue(() =>
-      this.#put("workspace", "active", cloneWorkspace(workspace)),
-    );
+    return this.#enqueue(() => this.#saveWorkspace(workspace));
   }
   putAsset(asset: Asset, bytes: ArrayBuffer): Promise<void> {
     return this.#enqueue(() => this.#put("assets", asset.id, bytes));
@@ -196,15 +312,78 @@ class IndexedDbRepository implements WorkspaceRepository {
       });
     });
   }
-  #enqueue(operation: () => Promise<void>): Promise<void> {
+  async createMigrationSnapshot(
+    workspace: Workspace,
+    reason: string,
+  ): Promise<MigrationSnapshot> {
+    const assets = await Promise.all(
+      workspace.assets.map(async (asset) => {
+        const bytes = await this.getAsset(asset.id);
+        if (!bytes)
+          throw new Error(`移行前バックアップを作成できません: ${asset.path}`);
+        return { id: asset.id, bytes };
+      }),
+    );
+    const snapshot: MigrationSnapshot & {
+      workspace: Workspace;
+      assets: Array<{ id: string; bytes: ArrayBuffer }>;
+    } = {
+      id: `migration-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`,
+      workspaceId: workspace.id,
+      schemaVersion: workspace.schemaVersion,
+      createdAt: new Date().toISOString(),
+      reason,
+      workspace: cloneWorkspace(workspace),
+      assets,
+    };
+    // Keep snapshots in the pre-existing metadata store. Increasing the IDB
+    // version would prevent an older emergency-rollback build from opening it.
+    await this.#put("metadata", `migrationSnapshot:${snapshot.id}`, snapshot);
+    return snapshot;
+  }
+  async restoreMigrationSnapshot(id: string): Promise<Workspace> {
+    const snapshot = await this.#value<
+      MigrationSnapshot & {
+        workspace: Workspace;
+        assets: Array<{ id: string; bytes: ArrayBuffer }>;
+      }
+    >("metadata", `migrationSnapshot:${id}`);
+    if (!snapshot) throw new Error("移行前バックアップが見つかりません。");
+    const current = await this.open(snapshot.workspace.id);
+    const db = await this.#openDb();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(
+        ["workspace", "assets", "metadata"],
+        "readwrite",
+      );
+      const assets = transaction.objectStore("assets");
+      for (const asset of current.assets) assets.delete(asset.id);
+      for (const asset of snapshot.assets) assets.put(asset.bytes, asset.id);
+      transaction
+        .objectStore("workspace")
+        .put(cloneWorkspace(snapshot.workspace), snapshot.workspace.id);
+      transaction
+        .objectStore("metadata")
+        .put(snapshot.workspace.id, "activeWorkspaceId");
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+    return cloneWorkspace(snapshot.workspace);
+  }
+  #enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.#queue.then(operation, operation);
-    this.#queue = next.catch(() => undefined);
+    this.#queue = next.then(
+      () => undefined,
+      () => undefined,
+    );
     return next;
   }
 }
 
 export function createWorkspaceRepository(): WorkspaceRepository {
-  return typeof Worker !== "undefined" && "storage" in navigator
+  return typeof Worker !== "undefined" &&
+    typeof navigator.storage?.getDirectory === "function"
     ? new WorkerRepository()
     : new IndexedDbRepository();
 }

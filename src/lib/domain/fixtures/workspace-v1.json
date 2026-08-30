@@ -1,0 +1,32 @@
+{
+  "id": "legacy-workspace",
+  "name": "Legacy workspace",
+  "schemaVersion": 1,
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-02T00:00:00.000Z",
+  "entries": [
+    {
+      "id": "legacy-document",
+      "workspaceId": "legacy-workspace",
+      "parentId": null,
+      "kind": "markdown",
+      "name": "notes.md",
+      "path": "notes.md",
+      "sortOrder": 0,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-02T00:00:00.000Z",
+      "deletedAt": null
+    }
+  ],
+  "documents": {
+    "legacy-document": {
+      "entryId": "legacy-document",
+      "content": "# Retained content",
+      "revision": 3,
+      "updatedAt": "2026-01-02T00:00:00.000Z"
+    }
+  },
+  "assets": [],
+  "diagrams": {},
+  "lastOpenedEntryId": "legacy-document"
+}

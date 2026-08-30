@@ -3,13 +3,24 @@
 import {
   cloneWorkspace,
   defaultWorkspace,
-  WORKSPACE_SCHEMA_VERSION,
   type Workspace,
 } from "../domain/workspace";
+import type { MigrationSnapshot } from "./workspace-repository";
+
+// This version belongs to the storage container, not to Workspace.schemaVersion.
+const STORAGE_SCHEMA_VERSION = 2;
 
 type Request = {
   id: string;
-  method: "open" | "list" | "save" | "putAsset" | "getAsset" | "deleteAsset";
+  method:
+    | "open"
+    | "list"
+    | "save"
+    | "putAsset"
+    | "getAsset"
+    | "deleteAsset"
+    | "createMigrationSnapshot"
+    | "restoreMigrationSnapshot";
   payload?: unknown;
 };
 type Response =
@@ -52,8 +63,31 @@ function migrate(database: SqliteDb): void {
     CREATE TABLE IF NOT EXISTS documents (entry_id TEXT PRIMARY KEY, content TEXT NOT NULL, revision INTEGER NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS assets (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, path TEXT NOT NULL, media_type TEXT NOT NULL, byte_size INTEGER NOT NULL, checksum TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(workspace_id, path));
     CREATE TABLE IF NOT EXISTS diagram_documents (entry_id TEXT PRIMARY KEY, format_version INTEGER NOT NULL, graph_json TEXT NOT NULL, preview_asset_id TEXT, mermaid_source TEXT, updated_at TEXT NOT NULL);
-    INSERT OR IGNORE INTO schema_migrations(version) VALUES (${WORKSPACE_SCHEMA_VERSION});
   `);
+  const version = Number(
+    rows(
+      database,
+      "SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations",
+    )[0]?.version ?? 0,
+  );
+  if (version > STORAGE_SCHEMA_VERSION)
+    throw new Error("この保存領域は新しいバージョンの UFT 用です。");
+  if (version < 1)
+    database.exec("INSERT INTO schema_migrations(version) VALUES (1)");
+  if (version < STORAGE_SCHEMA_VERSION)
+    database.exec(`
+      BEGIN IMMEDIATE;
+      CREATE TABLE IF NOT EXISTS migration_snapshots (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        schema_version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        workspace_json TEXT NOT NULL
+      );
+      INSERT INTO schema_migrations(version) VALUES (2);
+      COMMIT;
+    `);
 }
 
 function rows(
@@ -97,7 +131,11 @@ function loadWorkspace(
     deletedAt: row.deleted_at ? String(row.deleted_at) : null,
   }));
   const documents = Object.fromEntries(
-    rows(database, "SELECT * FROM documents").map((row) => [
+    rows(
+      database,
+      "SELECT documents.* FROM documents INNER JOIN entries ON entries.id = documents.entry_id WHERE entries.workspace_id = ?",
+      [workspaceId],
+    ).map((row) => [
       String(row.entry_id),
       {
         entryId: String(row.entry_id),
@@ -119,7 +157,11 @@ function loadWorkspace(
     createdAt: String(row.created_at),
   }));
   const diagrams = Object.fromEntries(
-    rows(database, "SELECT * FROM diagram_documents").map((row) => [
+    rows(
+      database,
+      "SELECT diagram_documents.* FROM diagram_documents INNER JOIN entries ON entries.id = diagram_documents.entry_id WHERE entries.workspace_id = ?",
+      [workspaceId],
+    ).map((row) => [
       String(row.entry_id),
       {
         entryId: String(row.entry_id),
@@ -267,6 +309,108 @@ async function removeAsset(id: string): Promise<void> {
   await (await assetDirectory()).removeEntry(id).catch(() => undefined);
 }
 
+async function snapshotDirectory(
+  id: string,
+  create: boolean,
+): Promise<FileSystemDirectoryHandle> {
+  const root = await navigator.storage.getDirectory();
+  const backups = await root.getDirectoryHandle("uft-migration-backups", {
+    create,
+  });
+  return backups.getDirectoryHandle(id, { create });
+}
+
+async function putFile(
+  directory: FileSystemDirectoryHandle,
+  id: string,
+  bytes: ArrayBuffer,
+): Promise<void> {
+  const handle = await directory.getFileHandle(id, { create: true });
+  const writable = await handle.createWritable();
+  await writable.write(bytes);
+  await writable.close();
+}
+
+async function removeSnapshotDirectory(id: string): Promise<void> {
+  try {
+    const root = await navigator.storage.getDirectory();
+    const backups = await root.getDirectoryHandle("uft-migration-backups");
+    await backups.removeEntry(id, { recursive: true });
+  } catch {
+    // A partially created backup is never registered in SQLite.
+  }
+}
+
+async function createMigrationSnapshot(
+  database: SqliteDb,
+  payload: { workspace: Workspace; reason: string },
+): Promise<MigrationSnapshot> {
+  const snapshot: MigrationSnapshot = {
+    id: `migration-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`,
+    workspaceId: payload.workspace.id,
+    schemaVersion: payload.workspace.schemaVersion,
+    createdAt: new Date().toISOString(),
+    reason: payload.reason,
+  };
+  try {
+    const directory = await snapshotDirectory(snapshot.id, true);
+    for (const asset of payload.workspace.assets) {
+      const bytes = await getAsset(asset.id);
+      if (!bytes)
+        throw new Error(`移行前バックアップを作成できません: ${asset.path}`);
+      await putFile(directory, asset.id, bytes);
+    }
+    database.exec("INSERT INTO migration_snapshots VALUES (?, ?, ?, ?, ?, ?)", {
+      bind: [
+        snapshot.id,
+        snapshot.workspaceId,
+        snapshot.schemaVersion,
+        snapshot.createdAt,
+        snapshot.reason,
+        JSON.stringify(cloneWorkspace(payload.workspace)),
+      ],
+    });
+    return snapshot;
+  } catch (error) {
+    await removeSnapshotDirectory(snapshot.id);
+    throw error;
+  }
+}
+
+async function restoreMigrationSnapshot(
+  database: SqliteDb,
+  id: string,
+): Promise<Workspace> {
+  const row = rows(
+    database,
+    "SELECT workspace_json FROM migration_snapshots WHERE id = ?",
+    [id],
+  )[0];
+  if (!row) throw new Error("移行前バックアップが見つかりません。");
+  let workspace: Workspace;
+  try {
+    workspace = JSON.parse(String(row.workspace_json)) as Workspace;
+  } catch {
+    throw new Error("移行前バックアップが壊れています。");
+  }
+  const current = loadWorkspace(database, workspace.id);
+  const directory = await snapshotDirectory(id, false);
+  for (const asset of workspace.assets) {
+    const bytes = await (await directory.getFileHandle(asset.id))
+      .getFile()
+      .then((file) => file.arrayBuffer());
+    await putAsset({ id: asset.id, bytes });
+  }
+  saveWorkspace(database, workspace);
+  for (const asset of current?.assets ?? []) {
+    if (
+      !workspace.assets.some((snapshotAsset) => snapshotAsset.id === asset.id)
+    )
+      await removeAsset(asset.id);
+  }
+  return cloneWorkspace(workspace);
+}
+
 async function dispatch(request: Request): Promise<unknown> {
   if (request.method === "putAsset")
     return putAsset(request.payload as { id: string; bytes: ArrayBuffer });
@@ -274,6 +418,13 @@ async function dispatch(request: Request): Promise<unknown> {
   if (request.method === "deleteAsset")
     return removeAsset(String(request.payload));
   const database = await db();
+  if (request.method === "createMigrationSnapshot")
+    return createMigrationSnapshot(
+      database,
+      request.payload as { workspace: Workspace; reason: string },
+    );
+  if (request.method === "restoreMigrationSnapshot")
+    return restoreMigrationSnapshot(database, String(request.payload));
   if (request.method === "open")
     return (
       loadWorkspace(
