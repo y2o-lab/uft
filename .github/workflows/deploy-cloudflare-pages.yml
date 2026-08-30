@@ -2,16 +2,7 @@ name: Deploy Cloudflare Pages
 
 on:
   push:
-    branches: [main]
-    paths-ignore:
-      - "infra/**"
-      - "docs/**"
-      - ".github/workflows/terraform-cloudflare.yml"
-  workflow_run:
-    workflows: [Terraform Cloudflare]
-    types: [completed]
-    branches: [main]
-  workflow_dispatch:
+    branches: [release]
 
 permissions:
   contents: read
@@ -23,9 +14,6 @@ concurrency:
 jobs:
   deploy:
     name: Build and deploy
-    if: >-
-      github.event_name != 'workflow_run' ||
-      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment: production
     env:
@@ -54,4 +42,4 @@ jobs:
         run: pnpm build
 
       - name: Deploy production site
-        run: pnpm exec wrangler pages deploy dist --project-name "$PAGES_PROJECT_NAME" --branch main
+        run: pnpm exec wrangler pages deploy dist --project-name "$PAGES_PROJECT_NAME" --branch release

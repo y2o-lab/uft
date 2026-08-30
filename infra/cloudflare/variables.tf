@@ -46,7 +46,7 @@ variable "pages_project_name" {
 
 variable "production_branch" {
   type        = string
-  default     = "main"
+  default     = "release"
   description = "Git branch promoted to the production Pages deployment by GitHub Actions."
 }
 

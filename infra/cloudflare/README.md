@@ -52,7 +52,7 @@ The workflows use GitHub Actions variables for non-secret, account-specific valu
 | `CLOUDFLARE_API_TOKEN` | Secret | Scoped Cloudflare API token |
 | `TF_API_TOKEN` | Secret | HCP Terraform user or team token |
 
-Protect the `production` GitHub Environment with required reviewers. The Terraform apply and Pages deployment jobs use that environment, so a push to `main` cannot deploy without its protection rule.
+Protect the `production` GitHub Environment with required reviewers. Terraform plans run for pull requests targeting `release-infra`, and Terraform applies after they merge into `release-infra`. The Pages deployment runs after an application change merges into `release`. Both apply and deployment jobs use the protected environment.
 
 ## Adding another provider
 

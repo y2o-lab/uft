@@ -2,16 +2,15 @@ name: Terraform Cloudflare
 
 on:
   pull_request:
-    branches: [main]
+    branches: [release-infra]
     paths:
       - "infra/cloudflare/**"
       - ".github/workflows/terraform-cloudflare.yml"
   push:
-    branches: [main]
+    branches: [release-infra]
     paths:
       - "infra/cloudflare/**"
       - ".github/workflows/terraform-cloudflare.yml"
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -64,7 +63,7 @@ jobs:
   apply:
     name: Apply
     needs: validate-and-plan
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/release-infra'
     runs-on: ubuntu-latest
     environment: production
     steps:
