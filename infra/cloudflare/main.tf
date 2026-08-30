@@ -47,15 +47,26 @@ resource "cloudflare_pages_project" "site" {
   production_branch = var.production_branch
 
   build_config = {
-    build_caching   = true
-    build_command   = var.build_command
-    destination_dir = var.build_output_directory
-    root_dir        = "/"
+    build_caching       = true
+    build_command       = var.build_command
+    destination_dir     = var.build_output_directory
+    root_dir            = "/"
+    web_analytics_tag   = cloudflare_web_analytics_site.site.site_tag
+    web_analytics_token = cloudflare_web_analytics_site.site.site_token
   }
 
   lifecycle {
     prevent_destroy = true
   }
+}
+
+# Pages injects the beacon during deployment using this site's tag and token.
+# Keep auto_install disabled so Pages is the sole injector; enabling both would
+# render two beacons on the same response.
+resource "cloudflare_web_analytics_site" "site" {
+  account_id   = var.cloudflare_account_id
+  host         = var.domain_name
+  auto_install = false
 }
 
 # Pages creates the necessary Cloudflare DNS mapping for a hostname in the
