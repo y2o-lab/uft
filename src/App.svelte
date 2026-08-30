@@ -5,6 +5,7 @@ import ConfirmDialog from "./lib/components/ConfirmDialog.svelte";
 import MarkdownPreview from "./lib/components/MarkdownPreview.svelte";
 import MarkdownDiff from "./lib/components/MarkdownDiff.svelte";
 import Toast from "./lib/components/Toast.svelte";
+import ErrorPage from "./lib/components/ErrorPage.svelte";
 import { activeEntries, orderedChildren } from "./lib/domain/tree";
 import {
   type Asset,
@@ -44,7 +45,7 @@ import {
 import type { Component } from "svelte";
 
 type Mode = "source" | "split" | "preview" | "diff";
-type AppPage = "launcher" | "workspace" | "document-import";
+type AppPage = "launcher" | "workspace" | "document-import" | "not-found";
 type LauncherTool = {
   id: string;
   href: string;
@@ -57,7 +58,8 @@ function currentPage(): AppPage {
   if (window.location.pathname === "/convert-to-markdown")
     return "document-import";
   if (window.location.pathname === "/workspace") return "workspace";
-  return "launcher";
+  if (window.location.pathname === "/") return "launcher";
+  return "not-found";
 }
 let workspace = $state<Workspace | null>(null);
 let repository = $state<WorkspaceRepository | null>(null);
@@ -93,6 +95,7 @@ let completedImportEntry = $state<WorkspaceEntry | null>(null);
 let page = $state<AppPage>(currentPage());
 let isDocumentImport = $derived(page === "document-import");
 let isLauncher = $derived(page === "launcher");
+let isNotFound = $derived(page === "not-found");
 let launcherQuery = $state("");
 let launcherSearchInput = $state<HTMLInputElement>();
 let launcherOpen = $state(false);
@@ -198,6 +201,7 @@ const commands: Array<{ name: string; action: () => void }> = [
 ];
 
 onMount(() => {
+  if (isNotFound) return;
   const boot = isLauncher
     ? undefined
     : window.setTimeout(() => void initialize(), 0);
@@ -961,9 +965,15 @@ function openImportedDocument(): void {
 }
 </script>
 
-<svelte:head><title>UFT — Markdown workspace</title><meta name="description" content="A local-first workspace for Markdown design documents." /><meta name="theme-color" content="#2d4932" /><link rel="manifest" href="/manifest.webmanifest" /></svelte:head>
+<svelte:head><title>UFT — Markdown workspace</title><meta name="description" content="A local-first workspace for Markdown design documents." /><meta name="theme-color" content="#2d4932" /><link rel="icon" href="/icon.svg" type="image/svg+xml" /><link rel="manifest" href="/manifest.webmanifest" /></svelte:head>
 
-{#if isLauncher}
+{#if isNotFound}
+  <ErrorPage
+    code="404"
+    title="ページが見つかりません"
+    description="URLをご確認のうえ、ホームから目的のツールを選択してください。"
+  />
+{:else if isLauncher}
   <main class="launcher-page">
     <header class="launcher-topbar">
       <div class="brand"><span class="brand-mark">u</span><span>uft</span></div>

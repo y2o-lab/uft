@@ -1,0 +1,9 @@
+# Terraform working directory and local state
+**/.terraform/*
+**/*.tfstate
+**/*.tfstate.*
+**/crash.log
+**/crash.*.log
+
+# Keep the dependency lock file under version control.
+!.terraform.lock.hcl

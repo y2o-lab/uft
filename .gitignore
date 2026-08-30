@@ -3,3 +3,5 @@ dist/
 *.tsbuildinfo
 .DS_Store
 .harness/
+infra/**/terraform.tfvars
+infra/**/backend.hcl
