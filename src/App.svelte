@@ -961,7 +961,7 @@ function openImportedDocument(): void {
 }
 </script>
 
-<svelte:head><title>UFT — Markdown workspace</title><meta name="description" content="A local-first workspace for Markdown design documents." /><meta name="theme-color" content="#2d4932" /><link rel="manifest" href="/manifest.webmanifest" /></svelte:head>
+<svelte:head><title>UFT — Markdown workspace</title><meta name="description" content="A local-first workspace for Markdown design documents." /><meta name="theme-color" content="#2d4932" /><link rel="icon" href="/icon.svg" type="image/svg+xml" /><link rel="manifest" href="/manifest.webmanifest" /></svelte:head>
 
 {#if isLauncher}
   <main class="launcher-page">
