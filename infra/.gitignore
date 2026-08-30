@@ -5,8 +5,5 @@
 **/crash.log
 **/crash.*.log
 
-# Local backend configuration can contain deployment-specific information.
-**/backend.hcl
-
 # Keep the dependency lock file under version control.
 !.terraform.lock.hcl

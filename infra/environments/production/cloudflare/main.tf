@@ -2,6 +2,7 @@ module "site" {
   source = "../../../modules/cloudflare-pages-site"
 
   cloudflare_account_id     = var.cloudflare_account_id
+  zone_name                 = var.zone_name
   domain_name               = var.domain_name
   manage_zone               = var.manage_zone
   zone_type                 = var.zone_type
