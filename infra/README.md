@@ -1,9 +1,18 @@
 # Infrastructure
 
-This directory keeps infrastructure isolated by provider. Adding another provider later (for example, `infra/aws` or `infra/vercel`) does not require restructuring the Cloudflare configuration.
+Terraform is organized by the boundary it represents:
 
 | Directory | Responsibility |
 | --- | --- |
-| `cloudflare/` | Cloudflare zone, Pages project, and custom domains |
+| `modules/` | Reusable, provider-specific Terraform modules. Modules never configure state or credentials. |
+| `environments/` | Deployable root modules. Each root configures its own state, provider requirements, and values for one environment. |
 
-Each provider directory is an independent Terraform root module with its own state. Do not share a Terraform state file across providers.
+The current production entry point is
+`environments/production/cloudflare`. It instantiates the
+`modules/cloudflare-pages-site` module to manage the Cloudflare zone, Pages
+project, custom domains, and Web Analytics site.
+
+Do not share a Terraform state file across environments or providers. Add a
+new deployment target as an independent root module, for example
+`environments/staging/cloudflare` or `environments/production/aws`; reuse a
+module only when its lifecycle and inputs genuinely match.

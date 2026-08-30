@@ -4,12 +4,14 @@ on:
   pull_request:
     branches: [release-infra]
     paths:
-      - "infra/cloudflare/**"
+      - "infra/modules/cloudflare-pages-site/**"
+      - "infra/environments/production/cloudflare/**"
       - ".github/workflows/terraform-cloudflare.yml"
   push:
     branches: [release-infra]
     paths:
-      - "infra/cloudflare/**"
+      - "infra/modules/cloudflare-pages-site/**"
+      - "infra/environments/production/cloudflare/**"
       - ".github/workflows/terraform-cloudflare.yml"
 
 permissions:
@@ -42,22 +44,22 @@ jobs:
           terraform_version: 1.12.2
 
       - name: Initialize remote state
-        working-directory: infra/cloudflare
+        working-directory: infra/environments/production/cloudflare
         run: >-
           terraform init
           -backend-config="organization=${{ vars.TF_CLOUD_ORGANIZATION }}"
           -backend-config="workspaces.name=${{ vars.TF_CLOUD_WORKSPACE }}"
 
       - name: Check formatting
-        working-directory: infra/cloudflare
+        working-directory: infra/environments/production/cloudflare
         run: terraform fmt -check -recursive
 
       - name: Validate configuration
-        working-directory: infra/cloudflare
+        working-directory: infra/environments/production/cloudflare
         run: terraform validate -no-color
 
       - name: Create plan
-        working-directory: infra/cloudflare
+        working-directory: infra/environments/production/cloudflare
         run: terraform plan -no-color
 
   apply:
@@ -76,12 +78,12 @@ jobs:
           terraform_version: 1.12.2
 
       - name: Initialize remote state
-        working-directory: infra/cloudflare
+        working-directory: infra/environments/production/cloudflare
         run: >-
           terraform init
           -backend-config="organization=${{ vars.TF_CLOUD_ORGANIZATION }}"
           -backend-config="workspaces.name=${{ vars.TF_CLOUD_WORKSPACE }}"
 
       - name: Apply reviewed configuration
-        working-directory: infra/cloudflare
+        working-directory: infra/environments/production/cloudflare
         run: terraform apply -auto-approve -no-color
