@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { House } from "@lucide/svelte";
   type ErrorPageProps = {
     code: string;
     title: string;
@@ -36,7 +37,7 @@
       {:else}
         <a href={actionHref}>{actionLabel}</a>
       {/if}
-      <a class="secondary-action" href="/">ホームへ戻る</a>
+      <a class="secondary-action button-with-icon" href="/"><House aria-hidden="true" />ホームへ戻る</a>
     </div>
   </section>
 </main>

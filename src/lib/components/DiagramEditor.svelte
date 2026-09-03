@@ -1,6 +1,7 @@
 <script lang="ts">
   import "@xyflow/svelte/dist/style.css";
   import { Background, Controls, SvelteFlow, addEdge, type Connection, type Edge, type Node } from "@xyflow/svelte";
+  import { Plus, Trash2 } from "@lucide/svelte";
   import type { DiagramDocument } from "../domain/workspace";
   let { diagram, onChange }: { diagram: DiagramDocument; onChange: (diagram: DiagramDocument) => void } = $props();
 let nodes = $state<Node[]>([]);
@@ -64,4 +65,4 @@ $effect(() => {
   function addNode(): void { const id = crypto.randomUUID(); nodes = [...nodes, { id, position: { x: 130 + nodes.length * 40, y: 180 + nodes.length * 25 }, data: { label: label.trim() || `Step ${nodes.length + 1}` } }]; label = ""; }
   function deleteSelected(): void { nodes = nodes.filter((node) => !node.selected); const ids = new Set(nodes.map((node) => node.id)); edges = edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target) && !edge.selected); }
 </script>
-<div class="diagram-editor"><div class="diagram-tools"><input bind:value={label} placeholder="ノード名" onkeydown={(event) => { if (event.key === "Enter") addNode(); }} /><button onclick={addNode}>ノードを追加</button><button onclick={deleteSelected}>選択を削除</button></div><div class="flow-canvas"><SvelteFlow bind:nodes bind:edges fitView onconnect={connect}><Background /><Controls /></SvelteFlow></div></div>
+<div class="diagram-editor"><div class="diagram-tools"><input bind:value={label} placeholder="ノード名" onkeydown={(event) => { if (event.key === "Enter") addNode(); }} /><button class="button-with-icon" onclick={addNode}><Plus aria-hidden="true" />ノードを追加</button><button class="button-with-icon" onclick={deleteSelected}><Trash2 aria-hidden="true" />選択を削除</button></div><div class="flow-canvas"><SvelteFlow bind:nodes bind:edges fitView onconnect={connect}><Background /><Controls /></SvelteFlow></div></div>

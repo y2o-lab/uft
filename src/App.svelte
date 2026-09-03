@@ -1,5 +1,30 @@
 <script lang="ts">
 import { onMount } from "svelte";
+import {
+  Download,
+  ArrowRight,
+  ChevronDown,
+  ChevronRight,
+  CircleAlert,
+  CircleCheck,
+  Command,
+  FileInput,
+  FileOutput,
+  FilePlus,
+  FileText,
+  Files,
+  FolderInput,
+  FolderPlus,
+  House,
+  Minus,
+  Pencil,
+  Save,
+  Trash2,
+  Undo2,
+  X,
+  Workflow,
+  type LucideIcon,
+} from "@lucide/svelte";
 import CodeMirrorEditor from "./lib/components/CodeMirrorEditor.svelte";
 import ConfirmDialog from "./lib/components/ConfirmDialog.svelte";
 import MarkdownPreview from "./lib/components/MarkdownPreview.svelte";
@@ -49,7 +74,7 @@ type AppPage = "launcher" | "workspace" | "document-import" | "not-found";
 type LauncherTool = {
   id: string;
   href: string;
-  icon: string;
+  icon: LucideIcon;
   name: string;
   description: string;
 };
@@ -152,14 +177,14 @@ const launcherTools: LauncherTool[] = [
   {
     id: "markdown-workspace",
     href: "/workspace",
-    icon: "▤",
+    icon: FileText,
     name: "Markdown ワークスペース",
     description: "文書の作成、編集、プレビュー、ZIP バックアップ",
   },
   {
     id: "document-import",
     href: "/convert-to-markdown",
-    icon: "↯",
+    icon: FileInput,
     name: "文書を Markdown に変換",
     description: "ローカルの Word、PDF、表計算ファイルなどを imports/ へ追加",
   },
@@ -990,9 +1015,9 @@ function openImportedDocument(): void {
       <div class="tool-launcher-grid">
         {#each matchingLauncherTools as tool (tool.id)}
           <a class="tool-launcher-card" href={tool.href}>
-            <span class="tool-icon">{tool.icon}</span>
+            <span class="tool-icon"><tool.icon aria-hidden="true" /></span>
             <span class="tool-copy"><strong>{tool.name}</strong><small>{tool.description}</small></span>
-            <span class="tool-arrow">→</span>
+            <ArrowRight class="tool-arrow" aria-hidden="true" />
           </a>
         {:else}
           <p class="launcher-empty">一致するツールはありません。別のキーワードで検索してください。</p>
@@ -1010,7 +1035,7 @@ function openImportedDocument(): void {
       {#if isDocumentImport}
         <a class="top-link" href="/">ホームへ戻る</a>
       {:else}
-        <a class="top-link" href="/">ホーム</a><button onclick={navigateToDocumentImport}>文書を変換</button><button onclick={() => paletteOpen = true} disabled={!workspace}>コマンド <kbd>⌘ ⇧ K</kbd></button><button onclick={backup} disabled={!workspace || writerMode === "read-only"}>ZIP バックアップ</button><button class="save-button" onclick={saveNow} disabled={!workspace || writerMode === "read-only"}>保存 <kbd>⌘ S</kbd></button>
+        <a class="top-link button-with-icon" href="/"><House aria-hidden="true" />ホーム</a><button class="button-with-icon" onclick={navigateToDocumentImport}><FileInput aria-hidden="true" />文書を変換</button><button class="button-with-icon" onclick={() => paletteOpen = true} disabled={!workspace}><Command aria-hidden="true" />コマンド <kbd>⌘ ⇧ K</kbd></button><button class="button-with-icon" onclick={backup} disabled={!workspace || writerMode === "read-only"}><Download aria-hidden="true" />ZIP バックアップ</button><button class="save-button button-with-icon" onclick={saveNow} disabled={!workspace || writerMode === "read-only"}><Save aria-hidden="true" />保存 <kbd>⌘ S</kbd></button>
       {/if}
     </div>
   </header>
@@ -1020,7 +1045,7 @@ function openImportedDocument(): void {
         <p class="eyebrow">LOCAL CONVERSION</p>
         <h1 id="document-import-title">文書を Markdown に変換</h1>
         <p>選択したファイルはこのブラウザ内の Worker だけで処理されます。元ファイルは保存せず、編集可能な Markdown を <code>imports/</code> に追加します。</p>
-        <button class="import-picker" onclick={() => documentImportInput?.click()} disabled={importingDocuments || !workspace || writerMode === "read-only"}>複数の文書を選択</button>
+        <button class="import-picker button-with-icon" onclick={() => documentImportInput?.click()} disabled={importingDocuments || !workspace || writerMode === "read-only"}><Files aria-hidden="true" />複数の文書を選択</button>
         <p class="import-hint">Word、PowerPoint、Excel、OpenDocument、RTF、EPUB、CSV、テキスト PDF に対応。1 ファイル 50 MB、合計 200 MB まで。</p>
         {#if writerMode === "read-only"}
           <p class="import-lock-warning" role="status">別の UFT タブが書き込み中です。保存するには、そちらのタブを閉じてからこの画面を再読み込みしてください。</p>
@@ -1029,7 +1054,7 @@ function openImportedDocument(): void {
           <div class="import-progress" role="status">
             <div><strong>{documentImportProgress.completed} / {documentImportProgress.total}</strong> 件を処理中{#if documentImportProgress.currentName}：{documentImportProgress.currentName}{/if}</div>
             <progress value={documentImportProgress.completed} max={documentImportProgress.total}></progress>
-            <button onclick={cancelDocumentImport}>キャンセル</button>
+            <button class="button-with-icon" onclick={cancelDocumentImport}><X aria-hidden="true" />キャンセル</button>
           </div>
         {/if}
         {#if documentImportResults.length}
@@ -1038,13 +1063,13 @@ function openImportedDocument(): void {
             <ul>
               {#each documentImportResults as result, index (index)}
                 <li class:failed={result.status === "failed"} class:cancelled={result.status === "cancelled"}>
-                  <span>{result.status === "imported" ? "✓" : result.status === "cancelled" ? "–" : "!"}</span>
+                  <span class="import-result-icon" aria-hidden="true">{#if result.status === "imported"}<CircleCheck />{:else if result.status === "cancelled"}<Minus />{:else}<CircleAlert />{/if}</span>
                   <div><strong>{result.file.name}</strong><small>{result.status === "imported" ? `${result.entry?.path} として追加しました` : result.reason}</small></div>
                 </li>
               {/each}
             </ul>
             {#if completedImportEntry}
-              <button class="open-imported-document" onclick={openImportedDocument}>変換した文書を開く</button>
+              <button class="open-imported-document button-with-icon" onclick={openImportedDocument}>変換した文書を開く<ArrowRight aria-hidden="true" /></button>
             {/if}
           </section>
         {/if}
@@ -1053,21 +1078,21 @@ function openImportedDocument(): void {
   {:else}
   <section class="workspace">
     <aside class="sidebar" aria-label="Explorer">
-      <div class="sidebar-title"><span>EXPLORER</span><span><button aria-label="新しい文書" onclick={() => create("markdown")} disabled={!workspace || writerMode === "read-only"}>＋</button><button aria-label="新しいフォルダ" onclick={() => create("folder")} disabled={!workspace || writerMode === "read-only"}>□</button></span></div>
+      <div class="sidebar-title"><span>EXPLORER</span><span><button aria-label="新しい文書" onclick={() => create("markdown")} disabled={!workspace || writerMode === "read-only"}><FilePlus aria-hidden="true" /></button><button aria-label="新しいフォルダ" onclick={() => create("folder")} disabled={!workspace || writerMode === "read-only"}><FolderPlus aria-hidden="true" /></button></span></div>
       {#if workspace}
         {#each visibleEntries as { entry, depth } (entry.id)}
-          <button class:active={entry.id === activeEntryId} class="tree-item" style={`padding-left:${9 + depth * 16}px`} onclick={() => selectEntry(entry)}>{entry.kind === "folder" ? (expanded.has(entry.id) ? "⌄" : "›") : entry.kind === "diagram" ? "◇" : "▤"} <span>{entry.name}</span></button>
+          <button class:active={entry.id === activeEntryId} class="tree-item" style={`padding-left:${9 + depth * 16}px`} onclick={() => selectEntry(entry)}><span class="tree-icon" aria-hidden="true">{#if entry.kind === "folder"}{#if expanded.has(entry.id)}<ChevronDown />{:else}<ChevronRight />{/if}{:else if entry.kind === "diagram"}<Workflow />{:else}<FileText />{/if}</span><span>{entry.name}</span></button>
         {/each}
       {:else}<p class="loading-tree">読み込み中…</p>{/if}
-      <div class="sidebar-actions"><button onclick={rename} disabled={!activeEntry || writerMode === "read-only"}>名前変更</button><button onclick={move} disabled={!activeEntry || writerMode === "read-only"}>移動</button><button onclick={() => deleteTarget = activeEntry} disabled={!activeEntry || writerMode === "read-only"}>削除</button></div>
+      <div class="sidebar-actions"><button aria-label="名前変更" title="名前変更" onclick={rename} disabled={!activeEntry || writerMode === "read-only"}><Pencil aria-hidden="true" /></button><button aria-label="移動" title="移動" onclick={move} disabled={!activeEntry || writerMode === "read-only"}><FolderInput aria-hidden="true" /></button><button aria-label="削除" title="削除" onclick={() => deleteTarget = activeEntry} disabled={!activeEntry || writerMode === "read-only"}><Trash2 aria-hidden="true" /></button></div>
     </aside>
     <section class="main-pane">
-      <div class="editor-toolbar"><div class="mode-switch"><button class:selected={mode === "source"} onclick={() => mode = "source"} disabled={!activeDocument}>Source</button><button class:selected={mode === "split"} onclick={() => mode = "split"} disabled={!activeDocument}>Split</button><button class:selected={mode === "preview"} onclick={() => mode = "preview"} disabled={!activeDocument}>Preview</button><button class:selected={mode === "diff"} onclick={openDiff} disabled={!activeDocument}>Diff</button></div>{#if mode === "diff" && comparisonEntries.length}<div class="diff-selector"><span>比較元</span><button bind:this={comparisonPickerButton} type="button" class="diff-selector-trigger" aria-label={`比較元: ${compareEntry?.path ?? "未選択"}`} aria-haspopup="listbox" aria-expanded={comparisonPickerOpen} onclick={toggleComparisonPicker}>{compareEntry?.path ?? "文書を選択"}<span aria-hidden="true">⌄</span></button>{#if comparisonPickerOpen}<div class="diff-picker-popover"><input bind:this={comparisonSearchInput} bind:value={comparisonQuery} aria-label="比較元を検索" aria-controls="comparison-picker-results" aria-activedescendant={matchingComparisonEntries[comparisonActiveIndex] ? `comparison-option-${matchingComparisonEntries[comparisonActiveIndex].id}` : undefined} placeholder="文書を検索…" autocomplete="off" oninput={() => comparisonActiveIndex = 0} onkeydown={handleComparisonSearchKeydown} /><div id="comparison-picker-results" class="diff-picker-results" role="listbox" aria-label="比較元の候補">{#each matchingComparisonEntries as entry, index (entry.id)}<button id={`comparison-option-${entry.id}`} type="button" role="option" class:active={index === comparisonActiveIndex} aria-selected={entry.id === compareEntryId} onmouseenter={() => comparisonActiveIndex = index} onclick={() => chooseComparisonEntry(entry.id)}>{entry.path}</button>{:else}<p>一致する Markdown 文書はありません。</p>{/each}</div></div>{/if}</div>{/if}<span class:error-text={statusTone === "error"} class="status"><span class="local-dot"></span>{status}</span></div>
+      <div class="editor-toolbar"><div class="mode-switch"><button class:selected={mode === "source"} onclick={() => mode = "source"} disabled={!activeDocument}>Source</button><button class:selected={mode === "split"} onclick={() => mode = "split"} disabled={!activeDocument}>Split</button><button class:selected={mode === "preview"} onclick={() => mode = "preview"} disabled={!activeDocument}>Preview</button><button class:selected={mode === "diff"} onclick={openDiff} disabled={!activeDocument}>Diff</button></div>{#if mode === "diff" && comparisonEntries.length}<div class="diff-selector"><span>比較元</span><button bind:this={comparisonPickerButton} type="button" class="diff-selector-trigger" aria-label={`比較元: ${compareEntry?.path ?? "未選択"}`} aria-haspopup="listbox" aria-expanded={comparisonPickerOpen} onclick={toggleComparisonPicker}><span>{compareEntry?.path ?? "文書を選択"}</span><ChevronDown aria-hidden="true" /></button>{#if comparisonPickerOpen}<div class="diff-picker-popover"><input bind:this={comparisonSearchInput} bind:value={comparisonQuery} aria-label="比較元を検索" aria-controls="comparison-picker-results" aria-activedescendant={matchingComparisonEntries[comparisonActiveIndex] ? `comparison-option-${matchingComparisonEntries[comparisonActiveIndex].id}` : undefined} placeholder="文書を検索…" autocomplete="off" oninput={() => comparisonActiveIndex = 0} onkeydown={handleComparisonSearchKeydown} /><div id="comparison-picker-results" class="diff-picker-results" role="listbox" aria-label="比較元の候補">{#each matchingComparisonEntries as entry, index (entry.id)}<button id={`comparison-option-${entry.id}`} type="button" role="option" class:active={index === comparisonActiveIndex} aria-selected={entry.id === compareEntryId} onmouseenter={() => comparisonActiveIndex = index} onclick={() => chooseComparisonEntry(entry.id)}>{entry.path}</button>{:else}<p>一致する Markdown 文書はありません。</p>{/each}</div></div>{/if}</div>{/if}<span class:error-text={statusTone === "error"} class="status"><span class="local-dot"></span>{status}</span></div>
       {#if activeMarkdown}
         {#if mode === "diff"}
           <section class="diff-pane" aria-label="Markdown comparison">
             {#if compareEntry && compareDocument}
-              <header class="diff-heading"><span>{compareEntry.path}</span><span aria-hidden="true">→</span><strong>{activeMarkdown.entry.path}</strong></header>
+              <header class="diff-heading"><span>{compareEntry.path}</span><ArrowRight aria-hidden="true" /><strong>{activeMarkdown.entry.path}</strong></header>
               <MarkdownDiff before={compareDocument.content} after={activeMarkdown.document.content} />
             {:else}
               <p class="diff-empty">比較する Markdown 文書を選択してください。</p>
@@ -1080,7 +1105,7 @@ function openImportedDocument(): void {
           </div>
         {/if}
       {:else if activeEntry?.kind === "diagram" && activeDiagram}
-        <section class="diagram-workspace"><div class="diagram-heading"><div><p class="eyebrow">DIAGRAM</p><h1>{activeEntry.name}</h1></div><button onclick={insertDiagramReference} disabled={writerMode === "read-only"}>Markdown に SVG を挿入</button></div>{#if DiagramEditor}<DiagramEditor diagram={activeDiagram} onChange={saveDiagram} />{:else}<p>図表エディタを読み込んでいます…</p>{/if}</section>
+        <section class="diagram-workspace"><div class="diagram-heading"><div><p class="eyebrow">DIAGRAM</p><h1>{activeEntry.name}</h1></div><button class="button-with-icon" onclick={insertDiagramReference} disabled={writerMode === "read-only"}><FileOutput aria-hidden="true" />Markdown に SVG を挿入</button></div>{#if DiagramEditor}<DiagramEditor diagram={activeDiagram} onChange={saveDiagram} />{:else}<p>図表エディタを読み込んでいます…</p>{/if}</section>
       {:else}<section class="setup-card"><p class="eyebrow">LOCAL-FIRST</p><h1>文書を選択、または新規作成してください。</h1><p>データはこのブラウザ内に保存されます。定期的に ZIP バックアップを作成してください。</p></section>{/if}
     </section>
   </section>
@@ -1093,7 +1118,7 @@ function openImportedDocument(): void {
 <input bind:this={importInput} hidden type="file" accept="application/zip,.zip" onchange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void restore(file); }} />
 {#if paletteOpen}<div class="palette-scrim"><dialog open class="palette" aria-label="Command palette"><input bind:value={query} placeholder="コマンドを検索…" />{#each commands as commandItem}{#if !query || commandItem.name.includes(query)}<button onclick={() => command(commandItem.action)}>{commandItem.name}</button>{/if}{/each}</dialog></div>{/if}
 <ConfirmDialog open={Boolean(deleteTarget)} title="項目を削除しますか？" detail={deleteTarget ? `「${deleteTarget.path}」とその子項目をこのセッションから削除します。` : ""} onCancel={() => deleteTarget = null} onConfirm={remove} />
-{#if toast}<button class="undo-toast" onclick={undoDelete}>{toast}</button>{/if}<Toast message="" />
+{#if toast}<button class="undo-toast button-with-icon" onclick={undoDelete}><Undo2 aria-hidden="true" />{toast}</button>{/if}<Toast message="" />
 {#if launcherOpen}
   <div class="tool-launcher-scrim">
     <dialog open class="tool-launcher-dialog" aria-label="ツールランチャー">
@@ -1104,7 +1129,7 @@ function openImportedDocument(): void {
       <div class="tool-launcher-results">
         {#each matchingLauncherTools as tool, index (tool.id)}
           <a class:selected={launcherSelectedIndex === index} class="tool-launcher-result" href={tool.href} onmouseenter={() => launcherSelectedIndex = index}>
-            <span class="tool-icon">{tool.icon}</span>
+            <span class="tool-icon"><tool.icon aria-hidden="true" /></span>
             <span class="tool-copy"><strong>{tool.name}</strong><small>{tool.description}</small></span>
             <kbd>↵</kbd>
           </a>

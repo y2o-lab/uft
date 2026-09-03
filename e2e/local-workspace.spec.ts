@@ -41,6 +41,20 @@ test("downloads a ZIP backup", async ({ page }) => {
   );
 });
 
+test("uses Lucide icons for workspace actions", async ({
+  page,
+}) => {
+  await page.goto("/workspace");
+  await expect(page.locator(".cm-content")).toBeVisible();
+
+  const save = page.getByRole("button", { name: /保存/ });
+  await expect(save.locator("svg.lucide-save")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "ZIP バックアップ" }).locator("svg.lucide-download"),
+  ).toBeVisible();
+
+});
+
 test("downloads the open Markdown document", async ({ page }) => {
   await page.goto("/workspace");
   await expect(page.locator(".cm-content")).toBeVisible();

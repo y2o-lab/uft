@@ -22,6 +22,7 @@
     "@codemirror/state": "6.7.1",
     "@codemirror/view": "6.43.8",
     "@firecrawl/anydoc-wasm": "0.1.9",
+    "@lucide/svelte": "1.40.0",
     "@sqlite.org/sqlite-wasm": "3.51.2-build9",
     "@xyflow/svelte": "1.6.3",
     "fflate": "0.8.3",
