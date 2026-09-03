@@ -13,7 +13,6 @@ import {
   FilePlus,
   FileText,
   Files,
-  FolderInput,
   FolderPlus,
   House,
   Minus,
@@ -31,7 +30,7 @@ import MarkdownPreview from "./lib/components/MarkdownPreview.svelte";
 import MarkdownDiff from "./lib/components/MarkdownDiff.svelte";
 import Toast from "./lib/components/Toast.svelte";
 import ErrorPage from "./lib/components/ErrorPage.svelte";
-import { activeEntries, orderedChildren } from "./lib/domain/tree";
+import { activeEntries, canMoveEntry, orderedChildren } from "./lib/domain/tree";
 import {
   type Asset,
   type EntryKind,
@@ -103,6 +102,8 @@ let paletteOpen = $state(false);
 let query = $state("");
 let deleteTarget = $state<WorkspaceEntry | null>(null);
 let expanded = $state(new Set<string>());
+let draggingEntryId = $state<string | null>(null);
+let dropTargetId = $state<string | null>(null);
 let assetUrls = $state<Record<string, string>>({});
 let insertIntoEditor: (text: string) => void = () => undefined;
 let pendingEditorInsertion = $state<string | null>(null);
@@ -523,22 +524,62 @@ function rename(): void {
   }
 }
 
-function move(): void {
-  if (!workspace || !activeEntry || !canWrite()) return;
-  const candidates = activeEntries(workspace)
-    .filter((entry) => entry.kind === "folder" && entry.id !== activeEntry.id)
-    .map((entry) => `${entry.path} (${entry.id})`)
-    .join("\n");
-  const id = window.prompt(
-    `移動先フォルダの ID を入力してください（空欄はルート）\n${candidates}`,
-    activeEntry.parentId ?? "",
+function dragEntry(event: DragEvent, entry: WorkspaceEntry): void {
+  if (!canWrite()) {
+    event.preventDefault();
+    return;
+  }
+  draggingEntryId = entry.id;
+  event.dataTransfer?.setData("application/x-uft-entry", entry.id);
+  event.dataTransfer?.setData("text/plain", entry.id);
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+}
+
+function draggedEntryId(event: DragEvent): string | null {
+  return (
+    draggingEntryId ??
+    event.dataTransfer?.getData("application/x-uft-entry") ??
+    event.dataTransfer?.getData("text/plain") ??
+    null
   );
-  if (id === null) return;
+}
+
+function canDropEntry(event: DragEvent, parentId: string | null): boolean {
+  if (!workspace || writerMode === "read-only") return false;
+  const entryId = draggedEntryId(event);
+  if (!entryId) return false;
+  const entry = activeEntries(workspace).find((candidate) => candidate.id === entryId);
+  return Boolean(
+    entry && entry.parentId !== parentId && canMoveEntry(workspace, entryId, parentId),
+  );
+}
+
+function showDropTarget(event: DragEvent, parentId: string | null): void {
+  if (!canDropEntry(event, parentId)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  dropTargetId = parentId;
+}
+
+function clearDropTarget(): void {
+  dropTargetId = null;
+}
+
+function dropEntry(event: DragEvent, parentId: string | null): void {
+  if (!canDropEntry(event, parentId) || !workspace || !canWrite()) return;
+  event.preventDefault();
+  const entryId = draggedEntryId(event);
+  if (!entryId) return;
   try {
-    moveEntry(workspace, activeEntry.id, id.trim() || null);
+    const entry = moveEntry(workspace, entryId, parentId);
+    if (parentId) expanded = new Set(expanded).add(parentId);
+    status = `${entry.name} を ${parentId ? entry.path.slice(0, -(entry.name.length + 1)) : "ワークスペースのルート"} に移動しました`;
     scheduleSave();
   } catch (error) {
     notify(error);
+  } finally {
+    draggingEntryId = null;
+    clearDropTarget();
   }
 }
 
@@ -1080,11 +1121,36 @@ function openImportedDocument(): void {
     <aside class="sidebar" aria-label="Explorer">
       <div class="sidebar-title"><span>EXPLORER</span><span><button aria-label="新しい文書" onclick={() => create("markdown")} disabled={!workspace || writerMode === "read-only"}><FilePlus aria-hidden="true" /></button><button aria-label="新しいフォルダ" onclick={() => create("folder")} disabled={!workspace || writerMode === "read-only"}><FolderPlus aria-hidden="true" /></button></span></div>
       {#if workspace}
+        <div
+          class:drop-target={dropTargetId === null && draggingEntryId !== null}
+          class="root-drop-target"
+          role="group"
+          aria-label="ワークスペースのルートにドロップ"
+          ondragover={(event) => showDropTarget(event, null)}
+          ondragleave={clearDropTarget}
+          ondrop={(event) => dropEntry(event, null)}
+        >ワークスペースのルートにドロップ</div>
         {#each visibleEntries as { entry, depth } (entry.id)}
-          <button class:active={entry.id === activeEntryId} class="tree-item" style={`padding-left:${9 + depth * 16}px`} onclick={() => selectEntry(entry)}><span class="tree-icon" aria-hidden="true">{#if entry.kind === "folder"}{#if expanded.has(entry.id)}<ChevronDown />{:else}<ChevronRight />{/if}{:else if entry.kind === "diagram"}<Workflow />{:else}<FileText />{/if}</span><span>{entry.name}</span></button>
+          <button
+            class:active={entry.id === activeEntryId}
+            class:dragging={entry.id === draggingEntryId}
+            class:drop-target={entry.kind === "folder" && entry.id === dropTargetId}
+            class="tree-item"
+            data-entry-id={entry.id}
+            data-entry-path={entry.path}
+            draggable={writerMode !== "read-only"}
+            style={`padding-left:${9 + depth * 16}px`}
+            title={writerMode === "read-only" ? undefined : "ドラッグしてフォルダへ移動"}
+            ondragstart={(event) => dragEntry(event, entry)}
+            ondragend={() => { draggingEntryId = null; clearDropTarget(); }}
+            ondragover={entry.kind === "folder" ? (event) => showDropTarget(event, entry.id) : undefined}
+            ondragleave={entry.kind === "folder" ? clearDropTarget : undefined}
+            ondrop={entry.kind === "folder" ? (event) => dropEntry(event, entry.id) : undefined}
+            onclick={() => selectEntry(entry)}
+          ><span class="tree-icon" aria-hidden="true">{#if entry.kind === "folder"}{#if expanded.has(entry.id)}<ChevronDown />{:else}<ChevronRight />{/if}{:else if entry.kind === "diagram"}<Workflow />{:else}<FileText />{/if}</span><span>{entry.name}</span></button>
         {/each}
       {:else}<p class="loading-tree">読み込み中…</p>{/if}
-      <div class="sidebar-actions"><button aria-label="名前変更" title="名前変更" onclick={rename} disabled={!activeEntry || writerMode === "read-only"}><Pencil aria-hidden="true" /></button><button aria-label="移動" title="移動" onclick={move} disabled={!activeEntry || writerMode === "read-only"}><FolderInput aria-hidden="true" /></button><button aria-label="削除" title="削除" onclick={() => deleteTarget = activeEntry} disabled={!activeEntry || writerMode === "read-only"}><Trash2 aria-hidden="true" /></button></div>
+      <div class="sidebar-actions"><button aria-label="名前変更" title="名前変更" onclick={rename} disabled={!activeEntry || writerMode === "read-only"}><Pencil aria-hidden="true" /></button><button aria-label="削除" title="削除" onclick={() => deleteTarget = activeEntry} disabled={!activeEntry || writerMode === "read-only"}><Trash2 aria-hidden="true" /></button></div>
     </aside>
     <section class="main-pane">
       <div class="editor-toolbar"><div class="mode-switch"><button class:selected={mode === "source"} onclick={() => mode = "source"} disabled={!activeDocument}>Source</button><button class:selected={mode === "split"} onclick={() => mode = "split"} disabled={!activeDocument}>Split</button><button class:selected={mode === "preview"} onclick={() => mode = "preview"} disabled={!activeDocument}>Preview</button><button class:selected={mode === "diff"} onclick={openDiff} disabled={!activeDocument}>Diff</button></div>{#if mode === "diff" && comparisonEntries.length}<div class="diff-selector"><span>比較元</span><button bind:this={comparisonPickerButton} type="button" class="diff-selector-trigger" aria-label={`比較元: ${compareEntry?.path ?? "未選択"}`} aria-haspopup="listbox" aria-expanded={comparisonPickerOpen} onclick={toggleComparisonPicker}><span>{compareEntry?.path ?? "文書を選択"}</span><ChevronDown aria-hidden="true" /></button>{#if comparisonPickerOpen}<div class="diff-picker-popover"><input bind:this={comparisonSearchInput} bind:value={comparisonQuery} aria-label="比較元を検索" aria-controls="comparison-picker-results" aria-activedescendant={matchingComparisonEntries[comparisonActiveIndex] ? `comparison-option-${matchingComparisonEntries[comparisonActiveIndex].id}` : undefined} placeholder="文書を検索…" autocomplete="off" oninput={() => comparisonActiveIndex = 0} onkeydown={handleComparisonSearchKeydown} /><div id="comparison-picker-results" class="diff-picker-results" role="listbox" aria-label="比較元の候補">{#each matchingComparisonEntries as entry, index (entry.id)}<button id={`comparison-option-${entry.id}`} type="button" role="option" class:active={index === comparisonActiveIndex} aria-selected={entry.id === compareEntryId} onmouseenter={() => comparisonActiveIndex = index} onclick={() => chooseComparisonEntry(entry.id)}>{entry.path}</button>{:else}<p>一致する Markdown 文書はありません。</p>{/each}</div></div>{/if}</div>{/if}<span class:error-text={statusTone === "error"} class="status"><span class="local-dot"></span>{status}</span></div>

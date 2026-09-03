@@ -55,6 +55,37 @@ test("uses Lucide icons for workspace actions", async ({
 
 });
 
+test("moves files and folders by dragging them onto folders", async ({ page }) => {
+  const names = ["Drop target", "nested", "dragged.md"];
+  page.on("dialog", (dialog) => void dialog.accept(names.shift()));
+
+  await page.goto("/workspace");
+  await expect(page.locator(".cm-content")).toBeVisible();
+
+  await page.getByRole("button", { name: "新しいフォルダ" }).click();
+  await page.getByRole("button", { name: "新しいフォルダ" }).click();
+  await page.getByRole("button", { name: "新しい文書" }).click();
+
+  const target = page.locator('[data-entry-path="docs/Drop target"]');
+  const nested = page.locator('[data-entry-path="docs/Drop target/nested"]');
+  const file = page.locator(
+    '[data-entry-path="docs/Drop target/nested/dragged.md"]',
+  );
+  const docs = page.locator('[data-entry-path="docs"]');
+
+  await expect(file).toBeVisible();
+  await file.dragTo(target);
+  await expect(
+    page.locator('[data-entry-path="docs/Drop target/dragged.md"]'),
+  ).toBeVisible();
+  await page.waitForTimeout(400);
+
+  await nested.dragTo(docs);
+  await expect(page.locator('[data-entry-path="docs/nested"]')).toBeVisible();
+  await expect(page.getByRole("button", { name: "移動" })).toHaveCount(0);
+  await page.waitForTimeout(400);
+});
+
 test("downloads the open Markdown document", async ({ page }) => {
   await page.goto("/workspace");
   await expect(page.locator(".cm-content")).toBeVisible();

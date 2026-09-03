@@ -14,6 +14,7 @@
     "test": "vitest run src",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:record": "PLAYWRIGHT_VIDEO=1 playwright test",
     "pages:deploy": "wrangler pages deploy dist --project-name uft"
   },
   "dependencies": {
