@@ -105,6 +105,21 @@ test("downloads the open Markdown document", async ({ page }) => {
   );
 });
 
+test("closes command modals when their backdrop is clicked", async ({ page }) => {
+  await page.goto("/workspace");
+  await expect(page.locator(".cm-content")).toBeVisible();
+
+  await page.keyboard.press("Meta+K");
+  await expect(page.getByRole("dialog", { name: "ツールランチャー" })).toBeVisible();
+  await page.mouse.click(8, 8);
+  await expect(page.getByRole("dialog", { name: "ツールランチャー" })).toBeHidden();
+
+  await page.keyboard.press("Meta+Shift+K");
+  await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+  await page.mouse.click(8, 8);
+  await expect(page.getByRole("dialog", { name: "Command palette" })).toBeHidden();
+});
+
 test("edits are persisted after reload", async ({ page }) => {
   await page.goto("/workspace");
   const editor = page.locator(".cm-content");

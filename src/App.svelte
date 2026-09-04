@@ -1213,11 +1213,12 @@ function openImportedDocument(): void {
 <input bind:this={documentImportInput} hidden type="file" multiple accept={documentAccept} onchange={(event) => void importSelectedDocuments(event.currentTarget.files)} />
 <input bind:this={imageInput} hidden type="file" accept="image/png,image/jpeg,image/gif,image/webp" onchange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void addImage(file); event.currentTarget.value = ""; }} />
 <input bind:this={importInput} hidden type="file" accept="application/zip,.zip" onchange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void restore(file); }} />
-{#if paletteOpen}<div class="palette-scrim"><dialog open class="palette" aria-label="Command palette"><input bind:value={query} placeholder="コマンドを検索…" />{#each commands as commandItem}{#if !query || commandItem.name.includes(query)}<button onclick={() => command(commandItem.action)}>{commandItem.name}</button>{/if}{/each}</dialog></div>{/if}
+{#if paletteOpen}<div class="palette-scrim"><button type="button" class="modal-backdrop" aria-label="コマンドパレットを閉じる" onclick={() => paletteOpen = false}></button><dialog open class="palette" aria-label="Command palette"><input bind:value={query} placeholder="コマンドを検索…" />{#each commands as commandItem}{#if !query || commandItem.name.includes(query)}<button onclick={() => command(commandItem.action)}>{commandItem.name}</button>{/if}{/each}</dialog></div>{/if}
 <ConfirmDialog open={Boolean(deleteTarget)} title="項目を削除しますか？" detail={deleteTarget ? `「${deleteTarget.path}」とその子項目をこのセッションから削除します。` : ""} onCancel={() => deleteTarget = null} onConfirm={remove} />
 {#if toast}<button class="undo-toast button-with-icon" onclick={undoDelete}><Undo2 aria-hidden="true" />{toast}</button>{/if}<Toast message="" />
 {#if launcherOpen}
   <div class="tool-launcher-scrim">
+    <button type="button" class="modal-backdrop" aria-label="ツールランチャーを閉じる" onclick={closeLauncher}></button>
     <dialog open class="tool-launcher-dialog" aria-label="ツールランチャー">
       <label class="tool-launcher-search">
         <span>ツールを検索 <kbd>Esc</kbd></span>
