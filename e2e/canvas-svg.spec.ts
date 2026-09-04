@@ -14,7 +14,7 @@ test("a canvas diagram saves its SVG and can be embedded in Markdown", async ({
 
   await page.goto("/workspace");
   await expect(page.getByRole("button", { name: "overview.md" })).toBeVisible();
-  await expect(page.getByText("このブラウザに安全に保存されます")).toBeVisible();
+  await expect(page.getByText("複数タブ同期モードで動作中")).toBeVisible();
   await page.keyboard.press("Meta+Shift+K");
   await page.getByRole("button", { name: "新しい図表" }).click();
 

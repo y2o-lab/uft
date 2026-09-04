@@ -33,6 +33,7 @@ import ErrorPage from "./lib/components/ErrorPage.svelte";
 import { activeEntries, canMoveEntry, orderedChildren } from "./lib/domain/tree";
 import {
   type Asset,
+  cloneWorkspace,
   type EntryKind,
   newId,
   type Workspace,
@@ -42,6 +43,7 @@ import { migrateWorkspace } from "./lib/domain/workspace-migrations";
 import { relativeAssetPath } from "./lib/markdown/preview";
 import {
   createFallbackWorkspaceRepository,
+  createLegacyOpfsRepository,
   createWorkspaceRepository,
   type WorkspaceRepository,
 } from "./lib/storage/workspace-repository";
@@ -58,6 +60,7 @@ import {
   softDeleteEntry,
   updateDocument,
 } from "./lib/workspace/workspace-service";
+import { mergeWorkspaces } from "./lib/workspace/workspace-sync";
 import { graphToMermaid, graphToSvg } from "./lib/diagrams/diagram";
 import { AnyDocClient } from "./lib/import/anydoc-client";
 import {
@@ -126,11 +129,9 @@ let launcherQuery = $state("");
 let launcherSearchInput = $state<HTMLInputElement>();
 let launcherOpen = $state(false);
 let launcherSelectedIndex = $state(0);
-let writerMode = $state<"writer" | "read-only" | "unavailable">("unavailable");
-let releaseWriterLock: (() => void) | undefined;
-let acquiringWriterLock = false;
-let writerLockReady: Promise<void> | undefined;
-let resolveWriterLockReady: (() => void) | undefined;
+let workspaceSyncChannel: BroadcastChannel | undefined;
+const tabId = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+let synchronizingWorkspace = false;
 const diagramSaveVersions = new Map<string, number>();
 let DiagramEditor = $state<Component<{ diagram: import("./lib/domain/workspace").DiagramDocument; onChange: (diagram: import("./lib/domain/workspace").DiagramDocument) => void }> | null>(null);
 
@@ -258,19 +259,17 @@ onMount(() => {
       deleteTarget = null;
     }
   };
-  const retryWriterLock = () => {
-    if (writerMode === "read-only") acquireWriterLock();
-  };
   window.addEventListener("keydown", onKey);
-  window.addEventListener("focus", retryWriterLock);
+  const refreshOnFocus = () => void refreshWorkspaceFromStorage();
+  window.addEventListener("focus", refreshOnFocus);
   return () => {
     if (boot) clearTimeout(boot);
     window.removeEventListener("keydown", onKey);
-    window.removeEventListener("focus", retryWriterLock);
+    window.removeEventListener("focus", refreshOnFocus);
+    workspaceSyncChannel?.close();
     Object.values(assetUrls).forEach(URL.revokeObjectURL);
     documentImportClient?.dispose();
     importController?.abort();
-    releaseWriterLock?.();
   };
 });
 
@@ -290,14 +289,15 @@ $effect(() => {
     try {
       repository = createWorkspaceRepository();
       try {
+        await importLegacyOpfsWorkspaces(repository);
         workspace = await repository.open();
       } catch {
         repository = createFallbackWorkspaceRepository();
         workspace = await repository.open();
         status = "SQLite を利用できないため互換保存モードで動作中";
       }
-      await acquireWriterLock();
       workspace = await migrateLoadedWorkspace(workspace);
+      startWorkspaceSync();
     const requestedEntryId = new URLSearchParams(window.location.search).get("entry");
     activeEntryId =
       (requestedEntryId && activeEntries(workspace).some((entry) => entry.id === requestedEntryId)
@@ -314,12 +314,7 @@ $effect(() => {
         .map((entry) => entry.id),
     );
       await hydrateAssets();
-      status =
-      writerMode === "read-only"
-        ? "別の UFT タブが書き込み中です（読み取り専用）"
-        : repository.mode === "opfs-sqlite"
-          ? "このブラウザに安全に保存されます"
-          : "互換保存モードで動作中";
+      status = "複数タブ同期モードで動作中";
   } catch (error) {
     statusTone = "error";
     status =
@@ -328,12 +323,39 @@ $effect(() => {
   }
 }
 
+async function importLegacyOpfsWorkspaces(
+  target: WorkspaceRepository,
+): Promise<void> {
+  const migrate = async (): Promise<void> => {
+    if ((await target.listWorkspaces()).length) return;
+    const legacy = createLegacyOpfsRepository();
+    if (!legacy) return;
+    const workspaces = await legacy.listWorkspaces();
+    for (const item of workspaces) {
+      const imported = await legacy.open(item.id);
+      for (const asset of imported.assets) {
+        const bytes = await legacy.getAsset(asset.id);
+        if (bytes) await target.putAsset(asset, bytes);
+      }
+      await target.save(imported);
+    }
+  };
+  try {
+    if ("locks" in navigator)
+      await navigator.locks.request("uft-workspace-legacy-import", migrate);
+    else await migrate();
+  } catch {
+    // A failed legacy import must not prevent a new multi-tab workspace from
+    // opening. The prior OPFS data remains untouched and can be retried later.
+  }
+}
+
 async function migrateLoadedWorkspace(
   candidate: Workspace,
 ): Promise<Workspace> {
   if (!repository) throw new Error("保存領域を初期化できませんでした。");
   const migration = migrateWorkspace(candidate);
-  if (!migration.migrated || writerMode !== "writer") return candidate;
+  if (!migration.migrated) return candidate;
   await repository.createMigrationSnapshot(
     candidate,
     `workspace schema ${migration.fromVersion} to ${migration.toVersion}`,
@@ -342,46 +364,46 @@ async function migrateLoadedWorkspace(
   return migration.workspace;
 }
 
-function acquireWriterLock(): Promise<void> {
-  if (!("locks" in navigator)) {
-    writerMode = "unavailable";
-    return Promise.resolve();
-  }
-  if (writerMode === "writer") return Promise.resolve();
-  if (acquiringWriterLock) return writerLockReady ?? Promise.resolve();
-  acquiringWriterLock = true;
-  writerLockReady = new Promise((resolve) => {
-    resolveWriterLockReady = resolve;
-  });
-  const hold = new Promise<void>((resolve) => {
-    releaseWriterLock = resolve;
-  });
-  void navigator.locks
-    .request(
-      "uft-workspace-write",
-      { ifAvailable: true },
-      async (lock) => {
-        acquiringWriterLock = false;
-        if (!lock) {
-          writerMode = "read-only";
-          status = "別の UFT タブが書き込み中です（読み取り専用）";
-          resolveWriterLockReady?.();
-          resolveWriterLockReady = undefined;
-          return;
-        }
-        writerMode = "writer";
-        resolveWriterLockReady?.();
-        resolveWriterLockReady = undefined;
-        await hold;
-      },
+function startWorkspaceSync(): void {
+  if (typeof BroadcastChannel === "undefined") return;
+  workspaceSyncChannel = new BroadcastChannel("uft-workspace-sync");
+  workspaceSyncChannel.addEventListener("message", (event: MessageEvent<unknown>) => {
+    const message = event.data;
+    if (
+      !message ||
+      typeof message !== "object" ||
+      !("source" in message) ||
+      !("workspaceId" in message) ||
+      message.source === tabId ||
+      typeof message.workspaceId !== "string"
     )
-    .catch(() => {
-      acquiringWriterLock = false;
-      writerMode = "unavailable";
-      resolveWriterLockReady?.();
-      resolveWriterLockReady = undefined;
-    });
-  return writerLockReady;
+      return;
+    void refreshWorkspaceFromStorage(message.workspaceId);
+  });
+}
+
+function announceWorkspaceSave(workspaceId: string): void {
+  workspaceSyncChannel?.postMessage({ source: tabId, workspaceId });
+}
+
+async function refreshWorkspaceFromStorage(workspaceId = workspace?.id): Promise<void> {
+  if (!workspaceId || !workspace || !repository || workspace.id !== workspaceId || synchronizingWorkspace)
+    return;
+  synchronizingWorkspace = true;
+  try {
+    const stored = await repository.open(workspaceId);
+    const next = mergeWorkspaces(stored, workspace);
+    if (JSON.stringify(next) !== JSON.stringify(workspace)) {
+      workspace = next;
+      await hydrateAssets();
+      status = "別のタブの変更を同期しました";
+      statusTone = "info";
+    }
+  } catch (error) {
+    notify(error);
+  } finally {
+    synchronizingWorkspace = false;
+  }
 }
 
 async function hydrateAssets(): Promise<void> {
@@ -411,7 +433,7 @@ async function switchWorkspace(): Promise<void> {
     activeEntryId = workspace.lastOpenedEntryId ?? activeEntries(workspace).find((entry) => entry.kind === "markdown")?.id ?? null;
     expanded = new Set(activeEntries(workspace).filter((entry) => entry.kind === "folder").map((entry) => entry.id));
     await hydrateAssets();
-    if (writerMode !== "read-only" && !(await saveNow())) return;
+    if (!(await saveNow())) return;
     status = `「${workspace.name}」を開きました`;
   } catch (error) {
     notify(error);
@@ -440,16 +462,14 @@ function selectEntry(entry: WorkspaceEntry): void {
     return;
   }
   activeEntryId = entry.id;
-  if (workspace && writerMode !== "read-only") {
+  if (workspace) {
     workspace.lastOpenedEntryId = entry.id;
     scheduleSave();
   }
 }
 
 function canWrite(): boolean {
-  if (writerMode !== "read-only") return true;
-  notify(new Error("別のタブが書き込み中です。そちらを閉じてから保存してください。"));
-  return false;
+  return true;
 }
 
 function create(kind: EntryKind): void {
@@ -545,7 +565,7 @@ function draggedEntryId(event: DragEvent): string | null {
 }
 
 function canDropEntry(event: DragEvent, parentId: string | null): boolean {
-  if (!workspace || writerMode === "read-only") return false;
+  if (!workspace) return false;
   const entryId = draggedEntryId(event);
   if (!entryId) return false;
   const entry = activeEntries(workspace).find((candidate) => candidate.id === entryId);
@@ -650,15 +670,25 @@ function scheduleSave(): void {
 }
 async function saveNow(): Promise<boolean> {
   if (!workspace || !repository) return false;
-  if (writerMode === "read-only") {
-    notify(new Error("別のタブが書き込み中です。そちらを閉じてから保存してください。"));
-    return false;
-  }
   if (saveTimer) clearTimeout(saveTimer);
   try {
     status = "保存中…";
-    workspace.updatedAt = new Date().toISOString();
-    await repository.save(workspace);
+    const localSnapshot = cloneWorkspace(workspace);
+    localSnapshot.updatedAt = new Date().toISOString();
+    const save = async (): Promise<Workspace> => {
+      const stored = await repository?.open(localSnapshot.id);
+      const merged = stored
+        ? mergeWorkspaces(stored, localSnapshot)
+        : localSnapshot;
+      await repository?.save(merged);
+      return merged;
+    };
+    const saved = "locks" in navigator
+      ? await navigator.locks.request("uft-workspace-save", save)
+      : await save();
+    // Do not discard text entered while the asynchronous write was running.
+    workspace = mergeWorkspaces(saved, workspace);
+    announceWorkspaceSave(saved.id);
     status = "保存済み";
     statusTone = "info";
     return true;
@@ -784,8 +814,8 @@ async function saveDiagram(
   };
   entry.updatedAt = updatedAt;
   try {
-    // WorkerRepository transfers the buffer to its Worker. Keep a separate
-    // copy for the immediate preview URL so it is not detached on OPFS builds.
+    // Keep a separate copy for the immediate preview URL while IndexedDB saves
+    // the original bytes for the other tabs.
     await repository.putAsset(asset, bytes.slice().buffer);
     if (
       workspace !== targetWorkspace ||
@@ -1076,7 +1106,7 @@ function openImportedDocument(): void {
       {#if isDocumentImport}
         <a class="top-link" href="/">ホームへ戻る</a>
       {:else}
-        <a class="top-link button-with-icon" href="/"><House aria-hidden="true" />ホーム</a><button class="button-with-icon" onclick={navigateToDocumentImport}><FileInput aria-hidden="true" />文書を変換</button><button class="button-with-icon" onclick={() => paletteOpen = true} disabled={!workspace}><Command aria-hidden="true" />コマンド <kbd>⌘ ⇧ K</kbd></button><button class="button-with-icon" onclick={backup} disabled={!workspace || writerMode === "read-only"}><Download aria-hidden="true" />ZIP バックアップ</button><button class="save-button button-with-icon" onclick={saveNow} disabled={!workspace || writerMode === "read-only"}><Save aria-hidden="true" />保存 <kbd>⌘ S</kbd></button>
+        <a class="top-link button-with-icon" href="/"><House aria-hidden="true" />ホーム</a><button class="button-with-icon" onclick={navigateToDocumentImport}><FileInput aria-hidden="true" />文書を変換</button><button class="button-with-icon" onclick={() => paletteOpen = true} disabled={!workspace}><Command aria-hidden="true" />コマンド <kbd>⌘ ⇧ K</kbd></button><button class="button-with-icon" onclick={backup} disabled={!workspace}><Download aria-hidden="true" />ZIP バックアップ</button><button class="save-button button-with-icon" onclick={saveNow} disabled={!workspace}><Save aria-hidden="true" />保存 <kbd>⌘ S</kbd></button>
       {/if}
     </div>
   </header>
@@ -1086,11 +1116,8 @@ function openImportedDocument(): void {
         <p class="eyebrow">LOCAL CONVERSION</p>
         <h1 id="document-import-title">文書を Markdown に変換</h1>
         <p>選択したファイルはこのブラウザ内の Worker だけで処理されます。元ファイルは保存せず、編集可能な Markdown を <code>imports/</code> に追加します。</p>
-        <button class="import-picker button-with-icon" onclick={() => documentImportInput?.click()} disabled={importingDocuments || !workspace || writerMode === "read-only"}><Files aria-hidden="true" />複数の文書を選択</button>
+        <button class="import-picker button-with-icon" onclick={() => documentImportInput?.click()} disabled={importingDocuments || !workspace}><Files aria-hidden="true" />複数の文書を選択</button>
         <p class="import-hint">Word、PowerPoint、Excel、OpenDocument、RTF、EPUB、CSV、テキスト PDF に対応。1 ファイル 50 MB、合計 200 MB まで。</p>
-        {#if writerMode === "read-only"}
-          <p class="import-lock-warning" role="status">別の UFT タブが書き込み中です。保存するには、そちらのタブを閉じてからこの画面を再読み込みしてください。</p>
-        {/if}
         {#if importingDocuments}
           <div class="import-progress" role="status">
             <div><strong>{documentImportProgress.completed} / {documentImportProgress.total}</strong> 件を処理中{#if documentImportProgress.currentName}：{documentImportProgress.currentName}{/if}</div>
@@ -1119,7 +1146,7 @@ function openImportedDocument(): void {
   {:else}
   <section class="workspace">
     <aside class="sidebar" aria-label="Explorer">
-      <div class="sidebar-title"><span>EXPLORER</span><span><button aria-label="新しい文書" onclick={() => create("markdown")} disabled={!workspace || writerMode === "read-only"}><FilePlus aria-hidden="true" /></button><button aria-label="新しいフォルダ" onclick={() => create("folder")} disabled={!workspace || writerMode === "read-only"}><FolderPlus aria-hidden="true" /></button></span></div>
+      <div class="sidebar-title"><span>EXPLORER</span><span><button aria-label="新しい文書" onclick={() => create("markdown")} disabled={!workspace}><FilePlus aria-hidden="true" /></button><button aria-label="新しいフォルダ" onclick={() => create("folder")} disabled={!workspace}><FolderPlus aria-hidden="true" /></button></span></div>
       {#if workspace}
         <div
           class:drop-target={dropTargetId === null && draggingEntryId !== null}
@@ -1138,9 +1165,9 @@ function openImportedDocument(): void {
             class="tree-item"
             data-entry-id={entry.id}
             data-entry-path={entry.path}
-            draggable={writerMode !== "read-only"}
+            draggable={true}
             style={`padding-left:${9 + depth * 16}px`}
-            title={writerMode === "read-only" ? undefined : "ドラッグしてフォルダへ移動"}
+            title="ドラッグしてフォルダへ移動"
             ondragstart={(event) => dragEntry(event, entry)}
             ondragend={() => { draggingEntryId = null; clearDropTarget(); }}
             ondragover={entry.kind === "folder" ? (event) => showDropTarget(event, entry.id) : undefined}
@@ -1150,7 +1177,7 @@ function openImportedDocument(): void {
           ><span class="tree-icon" aria-hidden="true">{#if entry.kind === "folder"}{#if expanded.has(entry.id)}<ChevronDown />{:else}<ChevronRight />{/if}{:else if entry.kind === "diagram"}<Workflow />{:else}<FileText />{/if}</span><span>{entry.name}</span></button>
         {/each}
       {:else}<p class="loading-tree">読み込み中…</p>{/if}
-      <div class="sidebar-actions"><button aria-label="名前変更" title="名前変更" onclick={rename} disabled={!activeEntry || writerMode === "read-only"}><Pencil aria-hidden="true" /></button><button aria-label="削除" title="削除" onclick={() => deleteTarget = activeEntry} disabled={!activeEntry || writerMode === "read-only"}><Trash2 aria-hidden="true" /></button></div>
+      <div class="sidebar-actions"><button aria-label="名前変更" title="名前変更" onclick={rename} disabled={!activeEntry}><Pencil aria-hidden="true" /></button><button aria-label="削除" title="削除" onclick={() => deleteTarget = activeEntry} disabled={!activeEntry}><Trash2 aria-hidden="true" /></button></div>
     </aside>
     <section class="main-pane">
       <div class="editor-toolbar"><div class="mode-switch"><button class:selected={mode === "source"} onclick={() => mode = "source"} disabled={!activeDocument}>Source</button><button class:selected={mode === "split"} onclick={() => mode = "split"} disabled={!activeDocument}>Split</button><button class:selected={mode === "preview"} onclick={() => mode = "preview"} disabled={!activeDocument}>Preview</button><button class:selected={mode === "diff"} onclick={openDiff} disabled={!activeDocument}>Diff</button></div>{#if mode === "diff" && comparisonEntries.length}<div class="diff-selector"><span>比較元</span><button bind:this={comparisonPickerButton} type="button" class="diff-selector-trigger" aria-label={`比較元: ${compareEntry?.path ?? "未選択"}`} aria-haspopup="listbox" aria-expanded={comparisonPickerOpen} onclick={toggleComparisonPicker}><span>{compareEntry?.path ?? "文書を選択"}</span><ChevronDown aria-hidden="true" /></button>{#if comparisonPickerOpen}<div class="diff-picker-popover"><input bind:this={comparisonSearchInput} bind:value={comparisonQuery} aria-label="比較元を検索" aria-controls="comparison-picker-results" aria-activedescendant={matchingComparisonEntries[comparisonActiveIndex] ? `comparison-option-${matchingComparisonEntries[comparisonActiveIndex].id}` : undefined} placeholder="文書を検索…" autocomplete="off" oninput={() => comparisonActiveIndex = 0} onkeydown={handleComparisonSearchKeydown} /><div id="comparison-picker-results" class="diff-picker-results" role="listbox" aria-label="比較元の候補">{#each matchingComparisonEntries as entry, index (entry.id)}<button id={`comparison-option-${entry.id}`} type="button" role="option" class:active={index === comparisonActiveIndex} aria-selected={entry.id === compareEntryId} onmouseenter={() => comparisonActiveIndex = index} onclick={() => chooseComparisonEntry(entry.id)}>{entry.path}</button>{:else}<p>一致する Markdown 文書はありません。</p>{/each}</div></div>{/if}</div>{/if}<span class:error-text={statusTone === "error"} class="status"><span class="local-dot"></span>{status}</span></div>
@@ -1166,12 +1193,12 @@ function openImportedDocument(): void {
           </section>
         {:else}
           <div class:source-only={mode === "source"} class:preview-only={mode === "preview"} class="document-area">
-            {#if mode !== "preview"}<section class="source-pane">{#key activeMarkdown.entry.id}<CodeMirrorEditor value={activeMarkdown.document.content} readOnly={writerMode === "read-only"} onChange={editDocument} onReady={setEditorInsertionHandler} />{/key}</section>{/if}
+            {#if mode !== "preview"}<section class="source-pane">{#key activeMarkdown.entry.id}<CodeMirrorEditor value={activeMarkdown.document.content} onChange={editDocument} onReady={setEditorInsertionHandler} />{/key}</section>{/if}
             {#if mode !== "source"}<section class="preview-pane"><MarkdownPreview markdown={activeMarkdown.document.content} {assetUrls} documentPath={activeMarkdown.entry.path} /></section>{/if}
           </div>
         {/if}
       {:else if activeEntry?.kind === "diagram" && activeDiagram}
-        <section class="diagram-workspace"><div class="diagram-heading"><div><p class="eyebrow">DIAGRAM</p><h1>{activeEntry.name}</h1></div><button class="button-with-icon" onclick={insertDiagramReference} disabled={writerMode === "read-only"}><FileOutput aria-hidden="true" />Markdown に SVG を挿入</button></div>{#if DiagramEditor}<DiagramEditor diagram={activeDiagram} onChange={saveDiagram} />{:else}<p>図表エディタを読み込んでいます…</p>{/if}</section>
+        <section class="diagram-workspace"><div class="diagram-heading"><div><p class="eyebrow">DIAGRAM</p><h1>{activeEntry.name}</h1></div><button class="button-with-icon" onclick={insertDiagramReference}><FileOutput aria-hidden="true" />Markdown に SVG を挿入</button></div>{#if DiagramEditor}<DiagramEditor diagram={activeDiagram} onChange={saveDiagram} />{:else}<p>図表エディタを読み込んでいます…</p>{/if}</section>
       {:else}<section class="setup-card"><p class="eyebrow">LOCAL-FIRST</p><h1>文書を選択、または新規作成してください。</h1><p>データはこのブラウザ内に保存されます。定期的に ZIP バックアップを作成してください。</p></section>{/if}
     </section>
   </section>
