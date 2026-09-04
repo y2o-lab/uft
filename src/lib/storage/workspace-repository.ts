@@ -13,22 +13,6 @@ export type MigrationSnapshot = {
   reason: string;
 };
 
-type Method =
-  | "open"
-  | "list"
-  | "save"
-  | "putAsset"
-  | "getAsset"
-  | "deleteAsset"
-  | "createMigrationSnapshot"
-  | "restoreMigrationSnapshot";
-type WorkerResponse = {
-  id: string;
-  ok: boolean;
-  result?: unknown;
-  error?: { message: string };
-};
-
 export interface WorkspaceRepository {
   open(id?: string): Promise<Workspace>;
   listWorkspaces(): Promise<
@@ -46,7 +30,25 @@ export interface WorkspaceRepository {
   readonly mode: "opfs-sqlite" | "indexeddb";
 }
 
-class WorkerRepository implements WorkspaceRepository {
+type LegacyMethod =
+  | "open"
+  | "list"
+  | "save"
+  | "putAsset"
+  | "getAsset"
+  | "deleteAsset"
+  | "createMigrationSnapshot"
+  | "restoreMigrationSnapshot";
+type LegacyResponse = {
+  id: string;
+  ok: boolean;
+  result?: unknown;
+  error?: { message: string };
+};
+
+// Kept solely to import workspaces created by the previous OPFS SQLite build.
+// New writes use IndexedDB, whose transactions can be shared across tabs.
+class LegacyOpfsRepository implements WorkspaceRepository {
   readonly mode = "opfs-sqlite" as const;
   #worker = new Worker(new URL("./workspace.worker.ts", import.meta.url), {
     type: "module",
@@ -64,7 +66,7 @@ class WorkerRepository implements WorkspaceRepository {
   constructor() {
     this.#worker.addEventListener(
       "message",
-      (event: MessageEvent<WorkerResponse>) => {
+      (event: MessageEvent<LegacyResponse>) => {
         const pending = this.#pending.get(event.data.id);
         if (!pending) return;
         clearTimeout(pending.timer);
@@ -80,16 +82,13 @@ class WorkerRepository implements WorkspaceRepository {
     );
     this.#worker.addEventListener("error", (event) => {
       this.#rejectPending(
-        new Error(event.message || "SQLite 保存 Worker の起動に失敗しました。"),
+        new Error(event.message || "旧形式の保存領域を開けません。"),
       );
-    });
-    this.#worker.addEventListener("messageerror", () => {
-      this.#rejectPending(new Error("SQLite 保存 Worker と通信できません。"));
     });
   }
 
   #call<T>(
-    method: Method,
+    method: LegacyMethod,
     payload?: unknown,
     transfer?: Transferable[],
   ): Promise<T> {
@@ -112,7 +111,7 @@ class WorkerRepository implements WorkspaceRepository {
         reject(
           error instanceof Error
             ? error
-            : new Error("SQLite 保存 Worker と通信できません。"),
+            : new Error("旧形式の保存領域と通信できません。"),
         );
       }
     });
@@ -382,12 +381,19 @@ class IndexedDbRepository implements WorkspaceRepository {
 }
 
 export function createWorkspaceRepository(): WorkspaceRepository {
-  return typeof Worker !== "undefined" &&
-    typeof navigator.storage?.getDirectory === "function"
-    ? new WorkerRepository()
-    : new IndexedDbRepository();
+  // OPFS SQLite requires an exclusive synchronous access handle, making a
+  // second browser tab fail or block. IndexedDB supports concurrent tabs and
+  // is therefore the canonical store for the workspace's live-sync mode.
+  return new IndexedDbRepository();
 }
 
 export function createFallbackWorkspaceRepository(): WorkspaceRepository {
   return new IndexedDbRepository();
+}
+
+export function createLegacyOpfsRepository(): WorkspaceRepository | null {
+  return typeof Worker !== "undefined" &&
+    typeof navigator.storage?.getDirectory === "function"
+    ? new LegacyOpfsRepository()
+    : null;
 }

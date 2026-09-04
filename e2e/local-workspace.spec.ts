@@ -41,6 +41,51 @@ test("downloads a ZIP backup", async ({ page }) => {
   );
 });
 
+test("uses Lucide icons for workspace actions", async ({
+  page,
+}) => {
+  await page.goto("/workspace");
+  await expect(page.locator(".cm-content")).toBeVisible();
+
+  const save = page.getByRole("button", { name: /保存/ });
+  await expect(save.locator("svg.lucide-save")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "ZIP バックアップ" }).locator("svg.lucide-download"),
+  ).toBeVisible();
+
+});
+
+test("moves files and folders by dragging them onto folders", async ({ page }) => {
+  const names = ["Drop target", "nested", "dragged.md"];
+  page.on("dialog", (dialog) => void dialog.accept(names.shift()));
+
+  await page.goto("/workspace");
+  await expect(page.locator(".cm-content")).toBeVisible();
+
+  await page.getByRole("button", { name: "新しいフォルダ" }).click();
+  await page.getByRole("button", { name: "新しいフォルダ" }).click();
+  await page.getByRole("button", { name: "新しい文書" }).click();
+
+  const target = page.locator('[data-entry-path="docs/Drop target"]');
+  const nested = page.locator('[data-entry-path="docs/Drop target/nested"]');
+  const file = page.locator(
+    '[data-entry-path="docs/Drop target/nested/dragged.md"]',
+  );
+  const docs = page.locator('[data-entry-path="docs"]');
+
+  await expect(file).toBeVisible();
+  await file.dragTo(target);
+  await expect(
+    page.locator('[data-entry-path="docs/Drop target/dragged.md"]'),
+  ).toBeVisible();
+  await page.waitForTimeout(400);
+
+  await nested.dragTo(docs);
+  await expect(page.locator('[data-entry-path="docs/nested"]')).toBeVisible();
+  await expect(page.getByRole("button", { name: "移動" })).toHaveCount(0);
+  await page.waitForTimeout(400);
+});
+
 test("downloads the open Markdown document", async ({ page }) => {
   await page.goto("/workspace");
   await expect(page.locator(".cm-content")).toBeVisible();
@@ -83,7 +128,7 @@ test("falls back to IndexedDB when OPFS is unavailable", async ({ page }) => {
   await page.goto("/workspace");
   const editor = page.locator(".cm-content");
   await expect(editor).toBeVisible();
-  await expect(page.locator(".status")).toContainText("互換保存モード");
+  await expect(page.locator(".status")).toContainText("複数タブ同期モード");
   await editor.click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText("# Fallback\n\nSaved in IndexedDB.");
@@ -96,45 +141,37 @@ test("falls back to IndexedDB when OPFS is unavailable", async ({ page }) => {
   );
 });
 
-test("a second tab is visibly read-only while another tab holds the writer lock", async ({
+test("multiple tabs remain editable and synchronize saved Markdown", async ({
   page,
 }) => {
   await page.goto("/workspace");
   await expect(page.locator(".cm-content")).toBeVisible();
-  await expect(page.getByText("このブラウザに安全に保存されます")).toBeVisible();
+  await expect(page.getByText("複数タブ同期モードで動作中")).toBeVisible();
 
   const secondTab = await page.context().newPage();
   await secondTab.goto("/workspace");
-  await expect(
-    secondTab.getByText("別の UFT タブが書き込み中です（読み取り専用）"),
-  ).toBeVisible();
-  await expect(
-    secondTab.getByRole("button", { name: "新しい文書" }),
-  ).toBeDisabled();
-  await expect(secondTab.locator(".cm-content")).toHaveAttribute(
-    "contenteditable",
-    "false",
-  );
-  await secondTab.close();
-});
-
-test("a read-only tab acquires the writer lock after the original tab closes", async ({
-  page,
-}) => {
-  await page.goto("/workspace");
-  await expect(page.locator(".cm-content")).toBeVisible();
-
-  const secondTab = await page.context().newPage();
-  await secondTab.goto("/workspace");
-  const newDocument = secondTab.getByRole("button", { name: "新しい文書" });
-  await expect(newDocument).toBeDisabled();
-
-  await page.close();
-  await secondTab.bringToFront();
-  await expect(newDocument).toBeEnabled();
+  await expect(secondTab.getByRole("button", { name: "新しい文書" })).toBeEnabled();
   await expect(secondTab.locator(".cm-content")).toHaveAttribute(
     "contenteditable",
     "true",
+  );
+
+  const firstEditor = page.locator(".cm-content");
+  await firstEditor.click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText("# Shared\n\nSaved from the first tab.");
+  await page.getByRole("button", { name: /保存/ }).click();
+  await expect(secondTab.locator(".preview-content")).toContainText(
+    "Saved from the first tab.",
+  );
+
+  const secondEditor = secondTab.locator(".cm-content");
+  await secondEditor.click();
+  await secondTab.keyboard.press("Meta+A");
+  await secondTab.keyboard.insertText("# Shared\n\nSaved from the second tab.");
+  await secondTab.getByRole("button", { name: /保存/ }).click();
+  await expect(page.locator(".preview-content")).toContainText(
+    "Saved from the second tab.",
   );
   await secondTab.close();
 });
