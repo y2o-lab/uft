@@ -164,6 +164,9 @@ test("multiple tabs remain editable and synchronize saved Markdown", async ({
   await expect(secondTab.locator(".preview-content")).toContainText(
     "Saved from the first tab.",
   );
+  await expect(secondTab.locator(".cm-content")).toContainText(
+    "Saved from the first tab.",
+  );
 
   const secondEditor = secondTab.locator(".cm-content");
   await secondEditor.click();
@@ -171,6 +174,9 @@ test("multiple tabs remain editable and synchronize saved Markdown", async ({
   await secondTab.keyboard.insertText("# Shared\n\nSaved from the second tab.");
   await secondTab.getByRole("button", { name: /保存/ }).click();
   await expect(page.locator(".preview-content")).toContainText(
+    "Saved from the second tab.",
+  );
+  await expect(page.locator(".cm-content")).toContainText(
     "Saved from the second tab.",
   );
   await secondTab.close();
