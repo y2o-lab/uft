@@ -5,10 +5,15 @@
 
   let { value = "", readOnly = false, onChange = () => undefined, onReady = () => undefined }: { value?: string; readOnly?: boolean; onChange?: (value: string) => void; onReady?: (insert: (text: string) => void) => void } = $props();
   let host: HTMLDivElement;
-  let view: EditorView | undefined;
+  // The view is reactive so the external-value effect also runs once the
+  // asynchronous CodeMirror setup has completed. Without this, a value that
+  // arrives from another tab can update the preview while leaving this editor
+  // instance on its initial document.
+  let view = $state<EditorView | undefined>(undefined);
   let editable: Compartment | undefined;
   let reconfigureEditable: ((readOnly: boolean) => void) | undefined;
   let ready = $state(false);
+  let applyingExternalValue = false;
 
   function insert(text: string): void {
     if (!view) return;
@@ -18,7 +23,12 @@
   }
 
   $effect(() => {
-    if (view && value !== view.state.doc.toString()) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
+    if (!view || value === view.state.doc.toString()) return;
+    applyingExternalValue = true;
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: value },
+    });
+    applyingExternalValue = false;
   });
 
   $effect(() => {
@@ -35,7 +45,7 @@
       import("@codemirror/state"), import("@codemirror/view"), import("@codemirror/commands"), import("@codemirror/lang-markdown"),
     ]);
     editable = new Compartment();
-    view = new EditorView({ parent: host, state: EditorState.create({ doc: value, extensions: [lineNumbers(), history(), markdown(), keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]), editable.of(EditorView.editable.of(!readOnly)), EditorView.updateListener.of((update) => { if (update.docChanged) onChange(update.state.doc.toString()); })] }) });
+    view = new EditorView({ parent: host, state: EditorState.create({ doc: value, extensions: [lineNumbers(), history(), markdown(), keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]), editable.of(EditorView.editable.of(!readOnly)), EditorView.updateListener.of((update) => { if (update.docChanged && !applyingExternalValue) onChange(update.state.doc.toString()); })] }) });
     reconfigureEditable = (nextReadOnly) => {
       if (view && editable)
         view.dispatch({
