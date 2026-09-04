@@ -118,6 +118,19 @@ test("edits are persisted after reload", async ({ page }) => {
   await expect(page.locator(".preview-content")).toContainText("Saved locally.");
 });
 
+test("shows a live character count on the Markdown editor", async ({ page }) => {
+  await page.goto("/workspace");
+  const editor = page.locator(".cm-content");
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText("# 日本語🙂\n\ntext");
+
+  await expect(page.getByTestId("markdown-character-count")).toHaveText(
+    "文字数: 12（改行を含む）",
+  );
+});
+
 test("falls back to IndexedDB when OPFS is unavailable", async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "storage", {
