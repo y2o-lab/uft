@@ -4,11 +4,6 @@ import { readFile } from "node:fs/promises";
 test("a canvas diagram saves its SVG and can be embedded in Markdown", async ({
   page,
 }) => {
-  const promptValues = ["System flow", "flow"];
-  await page.addInitScript((values) => {
-    window.prompt = () => values.shift() ?? null;
-  }, promptValues);
-
   const pageErrors: Error[] = [];
   page.on("pageerror", (error) => pageErrors.push(error));
 
@@ -17,6 +12,12 @@ test("a canvas diagram saves its SVG and can be embedded in Markdown", async ({
   await expect(page.getByText("複数タブ同期モードで動作中")).toBeVisible();
   await page.keyboard.press("Meta+Shift+K");
   await page.getByRole("button", { name: "新しい図表" }).click();
+  const input = page.locator("#text-input-dialog-value");
+  await input.fill("System flow");
+  await input.press("Enter");
+  await expect(input).toBeVisible();
+  await input.fill("flow");
+  await input.press("Enter");
 
   await expect(page.getByRole("heading", { name: "System flow" })).toBeVisible();
   await expect(page.locator(".svelte-flow")).toBeVisible();
@@ -35,7 +36,7 @@ test("a canvas diagram saves its SVG and can be embedded in Markdown", async ({
   await page.getByRole("button", { name: "Markdown に SVG を挿入" }).click();
   await expect(page.getByRole("button", { name: "overview.md" })).toBeVisible();
   await expect(page.locator(".cm-content")).toContainText(
-    /assets\/diagrams\/System-flow-diagram-[^\s)]+\.svg/,
+    /assets\/diagrams\/System-flow-diagram-.*\.svg/,
   );
   await expect(page.getByText("保存済み")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText("保存に失敗しました")).toHaveCount(0);
@@ -51,8 +52,8 @@ test("a canvas diagram saves its SVG and can be embedded in Markdown", async ({
     mimeType: "application/zip",
     buffer: await readFile(exportedPath as string),
   });
-  await expect(page.getByText("新しいワークスペースとして復元しました")).toBeVisible();
-  await expect(page.getByRole("button", { name: "System flow" })).toBeVisible();
+  await expect(page.getByText("現在のワークスペースへ ZIP を復元しました")).toBeVisible();
+  await expect(page.getByRole("button", { name: "System flow", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "overview.md" }).click();
   await page.getByRole("button", { name: "Preview" }).click();
   await expect(
@@ -60,9 +61,9 @@ test("a canvas diagram saves its SVG and can be embedded in Markdown", async ({
   ).toHaveAttribute("src", /^blob:/);
 
   await page.reload();
-  await expect(page.getByRole("button", { name: "System flow" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "System flow", exact: true })).toBeVisible();
   await expect(page.locator(".cm-content")).toContainText(
-    /assets\/diagrams\/System-flow-diagram-[^\s)]+\.svg/,
+    /assets\/diagrams\/System-flow-diagram-.*\.svg/,
   );
   await page.getByRole("button", { name: "Preview" }).click();
   await expect(page.locator('.preview-content img[alt="System flow"]')).toHaveAttribute(

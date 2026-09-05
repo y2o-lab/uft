@@ -123,9 +123,18 @@ export function softDeleteEntry(
 }
 
 export function restoreEntries(workspace: Workspace, entryIds: string[]): void {
+  const restoredAt = now();
   for (const id of entryIds) {
     const entry = workspace.entries.find((candidate) => candidate.id === id);
-    if (entry) entry.deletedAt = null;
+    if (!entry) continue;
+    entry.deletedAt = null;
+    // A restored entry must be newer than its tombstone. Otherwise a saved
+    // deletion with the same timestamp wins during multi-tab save merging and
+    // makes the item disappear again immediately after it is restored.
+    entry.updatedAt =
+      restoredAt > entry.updatedAt
+        ? restoredAt
+        : new Date(Date.parse(entry.updatedAt) + 1).toISOString();
   }
   touch(workspace);
 }

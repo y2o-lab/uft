@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { strToU8, zipSync } from "fflate";
 
 function backupArchive(name: string, path: string, content: string): Uint8Array {
@@ -25,6 +25,13 @@ function backupArchive(name: string, path: string, content: string): Uint8Array 
     [path]: markdown,
     "uft-manifest.json": strToU8(JSON.stringify(manifest)),
   });
+}
+
+async function submitTextInputDialog(page: Page, value: string): Promise<void> {
+  const input = page.locator("#text-input-dialog-value");
+  await expect(input).toBeVisible();
+  await input.fill(value);
+  await input.press("Enter");
 }
 
 test("downloads a ZIP backup", async ({ page }) => {
@@ -55,16 +62,35 @@ test("uses Lucide icons for workspace actions", async ({
 
 });
 
+test("uses the site modal instead of a browser prompt for Markdown names", async ({ page }) => {
+  let browserDialogOpened = false;
+  page.on("dialog", (dialog) => {
+    browserDialogOpened = true;
+    void dialog.dismiss();
+  });
+
+  await page.goto("/workspace");
+  await page.getByRole("button", { name: "新しい文書" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "新しいMarkdown 文書名" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Markdown 文書名" })).toBeFocused();
+  await submitTextInputDialog(page, "modal-name.md");
+
+  await expect(page.locator('[data-entry-path="docs/modal-name.md"]')).toBeVisible();
+  expect(browserDialogOpened).toBe(false);
+});
+
 test("moves files and folders by dragging them onto folders", async ({ page }) => {
   const names = ["Drop target", "nested", "dragged.md"];
-  page.on("dialog", (dialog) => void dialog.accept(names.shift()));
 
   await page.goto("/workspace");
   await expect(page.locator(".cm-content")).toBeVisible();
 
-  await page.getByRole("button", { name: "新しいフォルダ" }).click();
-  await page.getByRole("button", { name: "新しいフォルダ" }).click();
-  await page.getByRole("button", { name: "新しい文書" }).click();
+  for (const name of names) {
+    await page.getByRole("button", { name: name.endsWith(".md") ? "新しい文書" : "新しいフォルダ" }).click();
+    await submitTextInputDialog(page, name);
+  }
 
   const target = page.locator('[data-entry-path="docs/Drop target"]');
   const nested = page.locator('[data-entry-path="docs/Drop target/nested"]');
@@ -131,6 +157,31 @@ test("edits are persisted after reload", async ({ page }) => {
   await expect(page.locator(".status")).toContainText("保存済み");
   await page.reload();
   await expect(page.locator(".preview-content")).toContainText("Saved locally.");
+});
+
+test("restores a deleted document after its deletion has been saved", async ({
+  page,
+}) => {
+  await page.goto("/workspace");
+  const overview = page.locator('[data-entry-path="docs/overview.md"]');
+  await expect(overview).toBeVisible();
+
+  await page.getByRole("button", { name: "削除" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "削除" }).click();
+  await expect(overview).toBeHidden();
+  await expect(page.locator(".status")).toContainText("保存済み");
+
+  await page
+    .getByRole("button", { name: "削除しました。取り消す" })
+    .click();
+  await expect(overview).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "削除しました。取り消す" }),
+  ).toBeHidden();
+  await expect(page.locator(".status")).toContainText("保存済み");
+
+  await page.reload();
+  await expect(overview).toBeVisible();
 });
 
 test("shows a live character count on the Markdown editor", async ({ page }) => {
@@ -210,7 +261,7 @@ test("multiple tabs remain editable and synchronize saved Markdown", async ({
   await secondTab.close();
 });
 
-test("restored workspaces remain saveable after reloading alongside another workspace", async ({
+test("ZIP restore adds files to the current workspace and remains saveable after reload", async ({
   page,
 }) => {
   await page.goto("/workspace");
@@ -232,7 +283,7 @@ test("restored workspaces remain saveable after reloading alongside another work
       ),
     });
   await expect(page.locator(".status")).toContainText(
-    "新しいワークスペースとして復元しました",
+    "現在のワークスペースへ ZIP を復元しました",
   );
 
   await page.reload();
@@ -246,35 +297,44 @@ test("restored workspaces remain saveable after reloading alongside another work
   await expect(page.getByText("保存に失敗しました")).toHaveCount(0);
 });
 
-test("switching workspaces remains selected after reloading", async ({ page }) => {
+test("a newly created workspace can be switched away from and remains selected", async ({ page }) => {
   await page.goto("/workspace");
   const editor = page.locator(".cm-content");
   await expect(editor).toBeVisible();
   await editor.click();
   await page.keyboard.press("Meta+A");
   await page.keyboard.insertText("# Original workspace");
-  await page.getByRole("button", { name: /保存/ }).click();
 
-  await page
-    .locator('input[accept="application/zip,.zip"]')
-    .setInputFiles({
-      name: "newer.zip",
-      mimeType: "application/zip",
-      buffer: Buffer.from(
-        backupArchive("Newer workspace", "newer.md", "# Newer workspace"),
-      ),
-    });
-  await expect(page.locator(".status")).toContainText(
-    "新しいワークスペースとして復元しました",
-  );
+  await page.getByRole("button", { name: /新規 WS/ }).click();
+  await submitTextInputDialog(page, "Newer workspace");
+  await expect(page.locator(".status")).toContainText("「Newer workspace」を作成しました");
+  await expect(editor).toContainText("# Newer workspace");
 
-  page.once("dialog", (dialog) => void dialog.accept("default"));
   await page.getByRole("button", { name: /コマンド/ }).click();
   await page.getByRole("button", { name: "ワークスペースを切り替える" }).click();
+  const workspaceIdSelect = page.getByRole("combobox", {
+    name: "ワークスペース ID",
+  });
+  await expect(workspaceIdSelect).toBeVisible();
+  await expect(workspaceIdSelect).toHaveText(/default/);
+  await expect(page.getByRole("dialog")).not.toContainText("My workspace");
+  await workspaceIdSelect.selectOption("default");
+  await page.getByRole("dialog").getByRole("button", { name: "開く" }).click();
   await expect(editor).toContainText("# Original workspace");
 
   await page.reload();
   await expect(editor).toContainText("# Original workspace");
+});
+
+test("creates a workspace with the keyboard shortcut", async ({ page }) => {
+  await page.goto("/workspace");
+  await expect(page.locator(".cm-content")).toBeVisible();
+
+  await page.keyboard.press("Meta+Alt+N");
+  await submitTextInputDialog(page, "Shortcut workspace");
+
+  await expect(page.locator(".status")).toContainText("「Shortcut workspace」を作成しました");
+  await expect(page.locator(".cm-content")).toContainText("# Shortcut workspace");
 });
 
 test("command templates remain separate Markdown blocks", async ({ page }) => {
@@ -295,8 +355,6 @@ test("command templates remain separate Markdown blocks", async ({ page }) => {
 test("compares the current Markdown document with another local document", async ({
   page,
 }) => {
-  page.on("dialog", (dialog) => void dialog.accept("baseline.md"));
-
   await page.goto("/workspace");
   const editor = page.locator(".cm-content");
   await expect(editor).toBeVisible();
@@ -305,6 +363,7 @@ test("compares the current Markdown document with another local document", async
   await page.keyboard.insertText("# Plan\n\nShared\n\n- Keep\n- Added");
 
   await page.getByRole("button", { name: "新しい文書" }).click();
+  await submitTextInputDialog(page, "baseline.md");
   await expect(editor).toBeVisible();
   await editor.click();
   await page.keyboard.press("Meta+A");
@@ -324,11 +383,12 @@ test("searches comparison documents before switching the diff target", async ({
   page,
 }) => {
   const names = ["baseline.md", "release-notes.md"];
-  page.on("dialog", (dialog) => void dialog.accept(names.shift()));
 
   await page.goto("/workspace");
-  await page.getByRole("button", { name: "新しい文書" }).click();
-  await page.getByRole("button", { name: "新しい文書" }).click();
+  for (const name of names) {
+    await page.getByRole("button", { name: "新しい文書" }).click();
+    await submitTextInputDialog(page, name);
+  }
   await page.getByRole("button", { name: /overview\.md/ }).click();
   await page.getByRole("button", { name: "Diff" }).click();
 
@@ -348,11 +408,12 @@ test("selects a searched comparison document with the keyboard", async ({
   page,
 }) => {
   const names = ["baseline.md", "release-notes.md"];
-  page.on("dialog", (dialog) => void dialog.accept(names.shift()));
 
   await page.goto("/workspace");
-  await page.getByRole("button", { name: "新しい文書" }).click();
-  await page.getByRole("button", { name: "新しい文書" }).click();
+  for (const name of names) {
+    await page.getByRole("button", { name: "新しい文書" }).click();
+    await submitTextInputDialog(page, name);
+  }
   await page.getByRole("button", { name: /overview\.md/ }).click();
   await page.getByRole("button", { name: "Diff" }).click();
   await page.getByRole("button", { name: /比較元:/ }).click();
@@ -370,8 +431,6 @@ test("selects a searched comparison document with the keyboard", async ({
 test("switching Markdown documents replaces the source editor content", async ({
   page,
 }) => {
-  page.on("dialog", (dialog) => void dialog.accept("second.md"));
-
   await page.goto("/workspace");
   const editor = page.locator(".cm-content");
   await expect(editor).toBeVisible();
@@ -380,6 +439,7 @@ test("switching Markdown documents replaces the source editor content", async ({
   await page.keyboard.insertText("# First document");
 
   await page.getByRole("button", { name: "新しい文書" }).click();
+  await submitTextInputDialog(page, "second.md");
   await expect(editor).toContainText("# Untitled");
   await editor.click();
   await page.keyboard.press("Meta+A");
@@ -432,15 +492,12 @@ test("long documents scroll inside the editor and preview panes", async ({ page 
 test("sidebar scrolls independently from the fixed application frame", async ({
   page,
 }) => {
-  let documentNumber = 0;
-  page.on("dialog", (dialog) => {
-    documentNumber += 1;
-    void dialog.accept(`scroll-test-${documentNumber}`);
-  });
-
   await page.goto("/workspace");
   const newDocument = page.getByRole("button", { name: "新しい文書" });
-  for (let index = 0; index < 36; index += 1) await newDocument.click();
+  for (let index = 0; index < 36; index += 1) {
+    await newDocument.click();
+    await submitTextInputDialog(page, `scroll-test-${index + 1}`);
+  }
 
   const beforeScroll = await page.evaluate(() => {
     const sidebar = document.querySelector<HTMLElement>(".sidebar");

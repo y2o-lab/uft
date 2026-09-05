@@ -26,6 +26,7 @@ import {
 } from "@lucide/svelte";
 import CodeMirrorEditor from "./lib/components/CodeMirrorEditor.svelte";
 import ConfirmDialog from "./lib/components/ConfirmDialog.svelte";
+import TextInputDialog from "./lib/components/TextInputDialog.svelte";
 import MarkdownPreview from "./lib/components/MarkdownPreview.svelte";
 import MarkdownDiff from "./lib/components/MarkdownDiff.svelte";
 import Toast from "./lib/components/Toast.svelte";
@@ -52,6 +53,7 @@ import {
   download,
   exportWorkspace,
   importWorkspace,
+  mergeImportedWorkspace,
 } from "./lib/transfer/workspace-zip";
 import {
   createEntry,
@@ -81,6 +83,16 @@ type LauncherTool = {
   name: string;
   description: string;
 };
+type TextInputRequest = {
+  title: string;
+  detail?: string;
+  label: string;
+  value: string;
+  options?: string[];
+  placeholder?: string;
+  submitLabel: string;
+  onSubmit: (value: string) => void;
+};
 
 function currentPage(): AppPage {
   if (window.location.pathname === "/convert-to-markdown")
@@ -102,9 +114,11 @@ let comparisonActiveIndex = $state(0);
 let status = $state("ローカルワークスペースを準備中");
 let statusTone = $state<"info" | "error">("info");
 let toast = $state("");
+let undoDeleteAvailable = $state(false);
 let paletteOpen = $state(false);
 let query = $state("");
 let deleteTarget = $state<WorkspaceEntry | null>(null);
+let textInputRequest = $state<TextInputRequest | null>(null);
 let expanded = $state(new Set<string>());
 let draggingEntryId = $state<string | null>(null);
 let dropTargetId = $state<string | null>(null);
@@ -202,6 +216,7 @@ let matchingLauncherTools = $derived(
   }),
 );
 const commands: Array<{ name: string; action: () => void }> = [
+  { name: "新しいワークスペース", action: () => createWorkspace() },
   { name: "新しい Markdown 文書", action: () => create("markdown") },
   { name: "新しいフォルダ", action: () => create("folder") },
   { name: "新しい図表", action: () => create("diagram") },
@@ -237,6 +252,16 @@ onMount(() => {
     ? undefined
     : window.setTimeout(() => void initialize(), 0);
   const onKey = (event: KeyboardEvent) => {
+    if (
+      !isLauncher &&
+      (event.metaKey || event.ctrlKey) &&
+      event.altKey &&
+      event.key.toLowerCase() === "n"
+    ) {
+      event.preventDefault();
+      createWorkspace();
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();
       void saveNow();
@@ -301,6 +326,9 @@ $effect(() => {
         status = "SQLite を利用できないため互換保存モードで動作中";
       }
       workspace = await migrateLoadedWorkspace(workspace);
+      // The initial fixture otherwise exists only in memory. Store it before
+      // users can create or select another workspace so it is always reopenable.
+      await repository.save(workspace);
       startWorkspaceSync();
     const requestedEntryId = new URLSearchParams(window.location.search).get("entry");
     activeEntryId =
@@ -427,18 +455,37 @@ async function hydrateAssets(): Promise<void> {
 async function switchWorkspace(): Promise<void> {
   if (!repository) return;
   const choices = await repository.listWorkspaces();
-  const selected = window.prompt(
-    `開くワークスペースの ID を入力してください。\n${choices.map((item) => `${item.name} (${item.id})`).join("\n")}`,
-    workspace?.id ?? "",
-  );
+  textInputRequest = {
+    title: "ワークスペースを切り替える",
+    detail: "開くワークスペースの ID を選択してください。",
+    label: "ワークスペース ID",
+    value: workspace?.id ?? "",
+    options: choices.map((item) => item.id),
+    submitLabel: "開く",
+    onSubmit: (selected) => void openWorkspace(selected),
+  };
+}
+
+async function openWorkspace(selected: string): Promise<void> {
+  const activeRepository = repository;
+  if (!activeRepository) return;
   if (!selected || selected === workspace?.id) return;
   try {
-    workspace = await migrateLoadedWorkspace(await repository.open(selected));
+    // Finish any delayed auto-save while it still belongs to the currently
+    // displayed workspace. A delayed save must never run after the selection
+    // has changed and write the wrong workspace.
+    if (!(await saveNow())) return;
+    const nextWorkspace = await migrateLoadedWorkspace(
+      await activeRepository.open(selected),
+    );
+    if (nextWorkspace.id !== selected)
+      throw new Error("指定されたワークスペースが見つかりません。");
+    workspace = nextWorkspace;
     activeEntryId = workspace.lastOpenedEntryId ?? activeEntries(workspace).find((entry) => entry.kind === "markdown")?.id ?? null;
     expanded = new Set(activeEntries(workspace).filter((entry) => entry.kind === "folder").map((entry) => entry.id));
     await hydrateAssets();
-    if (!(await saveNow())) return;
     status = `「${workspace.name}」を開きました`;
+    statusTone = "info";
   } catch (error) {
     notify(error);
   }
@@ -476,6 +523,90 @@ function canWrite(): boolean {
   return true;
 }
 
+function createWorkspace(): void {
+  textInputRequest = {
+    title: "新しいワークスペース",
+    detail: "新しいワークスペースは、このブラウザ内に個別に保存されます。",
+    label: "ワークスペース名",
+    value: "New workspace",
+    submitLabel: "作成",
+    onSubmit: (name) => void createWorkspaceWithName(name),
+  };
+}
+
+async function createWorkspaceWithName(name: string): Promise<void> {
+  if (!repository) return;
+  const workspaceName = name.trim();
+  if (!workspaceName) {
+    notify(new Error("ワークスペース名を入力してください。"));
+    return;
+  }
+  // Preserve changes even when a new workspace is created within the
+  // auto-save delay after editing the current one.
+  if (!(await saveNow())) return;
+  const now = new Date().toISOString();
+  const workspaceId = newId("workspace");
+  const folderId = newId("folder");
+  const documentId = newId("markdown");
+  const created: Workspace = {
+    id: workspaceId,
+    name: workspaceName,
+    schemaVersion: 2,
+    createdAt: now,
+    updatedAt: now,
+    lastOpenedEntryId: documentId,
+    entries: [
+      {
+        id: folderId,
+        workspaceId,
+        parentId: null,
+        kind: "folder",
+        name: "docs",
+        path: "docs",
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      },
+      {
+        id: documentId,
+        workspaceId,
+        parentId: folderId,
+        kind: "markdown",
+        name: "overview.md",
+        path: "docs/overview.md",
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      },
+    ],
+    documents: {
+      [documentId]: {
+        entryId: documentId,
+        content: `# ${workspaceName}\n`,
+        revision: 1,
+        updatedAt: now,
+      },
+    },
+    assets: [],
+    diagrams: {},
+  };
+  try {
+    await repository.save(created);
+    if (saveTimer) clearTimeout(saveTimer);
+    workspace = created;
+    activeEntryId = documentId;
+    expanded = new Set([folderId]);
+    assetUrls = {};
+    announceWorkspaceSave(created.id);
+    status = `「${created.name}」を作成しました`;
+    statusTone = "info";
+  } catch (error) {
+    notify(error);
+  }
+}
+
 function create(kind: EntryKind): void {
   if (!workspace || !canWrite()) return;
   const parentId =
@@ -494,54 +625,82 @@ function create(kind: EntryKind): void {
       : kind === "diagram"
         ? "New diagram"
         : "untitled.md";
-  const name = window.prompt(label, defaultName);
-  if (!name) return;
-    try {
-      const entry = createEntry(
+  textInputRequest = {
+    title: `新しい${label}`,
+    label,
+    value: defaultName,
+    submitLabel: "作成",
+    onSubmit: (name) => createWithName(kind, parentId, name),
+  };
+}
+
+function createWithName(kind: EntryKind, parentId: string | null, name: string): void {
+  if (!workspace) return;
+  try {
+    const entry = createEntry(
       workspace,
       kind,
       parentId,
       kind === "markdown" && !name.endsWith(".md") ? `${name}.md` : name,
-      );
-      if (kind === "diagram") {
-        const template = window.prompt(
-          "テンプレートを選択してください: flow / architecture / er",
-          "flow",
-        );
-        const diagram = workspace.diagrams[entry.id];
-        if (diagram) {
-          const labels =
-            template === "architecture"
-              ? ["Client", "Gateway", "Service", "Database"]
-              : template === "er"
-                ? ["User", "Order", "Item"]
-                : ["Start", "Review", "Finish"];
-          diagram.graph.nodes = labels.map((label, index) => ({
-            id: `node-${index + 1}`,
-            position: { x: 70 + index * 210, y: 100 },
-            data: { label },
-          }));
-          diagram.graph.edges = labels.slice(1).map((_, index) => ({
-            id: `edge-${index + 1}`,
-            source: `node-${index + 1}`,
-            target: `node-${index + 2}`,
-          }));
-        }
-      }
-      activeEntryId = entry.id;
+    );
+    activeEntryId = entry.id;
     if (parentId) expanded = new Set(expanded).add(parentId);
     scheduleSave();
+    if (kind === "diagram") requestDiagramTemplate(entry.id);
   } catch (error) {
     notify(error);
   }
 }
 
+function requestDiagramTemplate(entryId: string): void {
+  textInputRequest = {
+    title: "図表テンプレートを選択",
+    detail: "flow、architecture、er から選択してください。",
+    label: "テンプレート",
+    value: "flow",
+    submitLabel: "適用",
+    onSubmit: (template) => applyDiagramTemplate(entryId, template),
+  };
+}
+
+function applyDiagramTemplate(entryId: string, template: string): void {
+  const diagram = workspace?.diagrams[entryId];
+  if (!diagram) return;
+  const labels =
+    template === "architecture"
+      ? ["Client", "Gateway", "Service", "Database"]
+      : template === "er"
+        ? ["User", "Order", "Item"]
+        : ["Start", "Review", "Finish"];
+  diagram.graph.nodes = labels.map((label, index) => ({
+    id: `node-${index + 1}`,
+    position: { x: 70 + index * 210, y: 100 },
+    data: { label },
+  }));
+  diagram.graph.edges = labels.slice(1).map((_, index) => ({
+    id: `edge-${index + 1}`,
+    source: `node-${index + 1}`,
+    target: `node-${index + 2}`,
+  }));
+  scheduleSave();
+}
+
 function rename(): void {
   if (!workspace || !activeEntry || !canWrite()) return;
-  const name = window.prompt("新しい名前", activeEntry.name);
-  if (!name) return;
+  const entryId = activeEntry.id;
+  textInputRequest = {
+    title: "名前を変更",
+    label: "新しい名前",
+    value: activeEntry.name,
+    submitLabel: "変更",
+    onSubmit: (name) => renameWithName(entryId, name),
+  };
+}
+
+function renameWithName(entryId: string, name: string): void {
+  if (!workspace) return;
   try {
-    renameEntry(workspace, activeEntry.id, name);
+    renameEntry(workspace, entryId, name);
     scheduleSave();
   } catch (error) {
     notify(error);
@@ -675,6 +834,7 @@ function scheduleSave(): void {
 async function saveNow(): Promise<boolean> {
   if (!workspace || !repository) return false;
   if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = undefined;
   try {
     status = "保存中…";
     const localSnapshot = cloneWorkspace(workspace);
@@ -691,7 +851,10 @@ async function saveNow(): Promise<boolean> {
       ? await navigator.locks.request("uft-workspace-save", save)
       : await save();
     // Do not discard text entered while the asynchronous write was running.
-    workspace = mergeWorkspaces(saved, workspace);
+    // A save that began before a workspace change must not replace the newly
+    // opened workspace in the UI when its write finishes.
+    if (workspace?.id === saved.id)
+      workspace = mergeWorkspaces(saved, workspace);
     announceWorkspaceSave(saved.id);
     status = "保存済み";
     statusTone = "info";
@@ -896,17 +1059,28 @@ async function backup(): Promise<void> {
   }
 }
 async function restore(file: File): Promise<void> {
-  if (!repository || !canWrite()) return;
+  if (!workspace || !repository || !canWrite()) return;
   try {
+    if (!(await saveNow())) return;
+    const destination = workspace;
     const imported = await importWorkspace(file);
-    for (const [id, bytes] of imported.binaries) {
-      const asset = imported.workspace.assets.find(
+    const restored = mergeImportedWorkspace(destination, imported);
+    if (workspace !== destination)
+      throw new Error("ワークスペースを切り替えたため、ZIP の復元を中止しました。");
+    for (const [id, bytes] of restored.binaries) {
+      const asset = restored.workspace.assets.find(
         (candidate) => candidate.id === id,
       );
       if (asset) await repository.putAsset(asset, bytes);
     }
-    workspace = imported.workspace;
-    activeEntryId = workspace.lastOpenedEntryId;
+    if (workspace !== destination)
+      throw new Error("ワークスペースを切り替えたため、ZIP の復元を中止しました。");
+    workspace = restored.workspace;
+    activeEntryId =
+      restored.importedEntryIds.find(
+        (id) => workspace?.entries.some((entry) => entry.id === id && entry.kind === "markdown"),
+      ) ?? activeEntryId;
+    workspace.lastOpenedEntryId = activeEntryId;
     expanded = new Set(
       activeEntries(workspace)
         .filter((entry) => entry.kind === "folder")
@@ -914,7 +1088,7 @@ async function restore(file: File): Promise<void> {
     );
     if (!(await saveNow())) return;
     await hydrateAssets();
-    status = "新しいワークスペースとして復元しました";
+    status = "現在のワークスペースへ ZIP を復元しました";
   } catch (error) {
     notify(error);
   } finally {
@@ -945,19 +1119,19 @@ function remove(): void {
   deletedIds = softDeleteEntry(workspace, deleteTarget.id).map(
     (entry) => entry.id,
   );
+  undoDeleteAvailable = deletedIds.length > 0;
   deleteTarget = null;
   activeEntryId =
     activeEntries(workspace).find((entry) => entry.kind === "markdown")?.id ??
     null;
   scheduleSave();
-  toast = "削除しました。取り消すにはここをクリック";
 }
 function undoDelete(): void {
   if (!workspace || !deletedIds.length || !canWrite()) return;
   restoreEntries(workspace, deletedIds);
   deletedIds = [];
+  undoDeleteAvailable = false;
   scheduleSave();
-  toast = "削除を取り消しました";
 }
 function command(action: () => void): void {
   paletteOpen = false;
@@ -1110,7 +1284,7 @@ function openImportedDocument(): void {
       {#if isDocumentImport}
         <a class="top-link" href="/">ホームへ戻る</a>
       {:else}
-        <a class="top-link button-with-icon" href="/"><House aria-hidden="true" />ホーム</a><button class="button-with-icon" onclick={navigateToDocumentImport}><FileInput aria-hidden="true" />文書を変換</button><button class="button-with-icon" onclick={() => paletteOpen = true} disabled={!workspace}><Command aria-hidden="true" />コマンド <kbd>⌘ ⇧ K</kbd></button><button class="button-with-icon" onclick={backup} disabled={!workspace}><Download aria-hidden="true" />ZIP バックアップ</button><button class="save-button button-with-icon" onclick={saveNow} disabled={!workspace}><Save aria-hidden="true" />保存 <kbd>⌘ S</kbd></button>
+        <a class="top-link button-with-icon" href="/"><House aria-hidden="true" />ホーム</a><button class="button-with-icon" onclick={createWorkspace} disabled={!repository}><FilePlus aria-hidden="true" />新規 WS <kbd>⌘ ⌥ N</kbd></button><button class="button-with-icon" onclick={navigateToDocumentImport}><FileInput aria-hidden="true" />文書を変換</button><button class="button-with-icon" onclick={() => paletteOpen = true} disabled={!workspace}><Command aria-hidden="true" />コマンド <kbd>⌘ ⇧ K</kbd></button><button class="button-with-icon" onclick={backup} disabled={!workspace}><Download aria-hidden="true" />ZIP バックアップ</button><button class="save-button button-with-icon" onclick={saveNow} disabled={!workspace}><Save aria-hidden="true" />保存 <kbd>⌘ S</kbd></button>
       {/if}
     </div>
   </header>
@@ -1215,7 +1389,8 @@ function openImportedDocument(): void {
 <input bind:this={importInput} hidden type="file" accept="application/zip,.zip" onchange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void restore(file); }} />
 {#if paletteOpen}<div class="palette-scrim"><button type="button" class="modal-backdrop" aria-label="コマンドパレットを閉じる" onclick={() => paletteOpen = false}></button><dialog open class="palette" aria-label="Command palette"><input bind:value={query} placeholder="コマンドを検索…" />{#each commands as commandItem}{#if !query || commandItem.name.includes(query)}<button onclick={() => command(commandItem.action)}>{commandItem.name}</button>{/if}{/each}</dialog></div>{/if}
 <ConfirmDialog open={Boolean(deleteTarget)} title="項目を削除しますか？" detail={deleteTarget ? `「${deleteTarget.path}」とその子項目をこのセッションから削除します。` : ""} onCancel={() => deleteTarget = null} onConfirm={remove} />
-{#if toast}<button class="undo-toast button-with-icon" onclick={undoDelete}><Undo2 aria-hidden="true" />{toast}</button>{/if}<Toast message="" />
+<TextInputDialog open={Boolean(textInputRequest)} title={textInputRequest?.title} detail={textInputRequest?.detail} label={textInputRequest?.label} value={textInputRequest?.value} options={textInputRequest?.options} placeholder={textInputRequest?.placeholder} submitLabel={textInputRequest?.submitLabel} onCancel={() => textInputRequest = null} onSubmit={(value) => { const request = textInputRequest; textInputRequest = null; request?.onSubmit(value); }} />
+{#if undoDeleteAvailable}<button class="undo-toast button-with-icon" onclick={undoDelete}><Undo2 aria-hidden="true" />削除しました。取り消す</button>{/if}<Toast message={toast} />
 {#if launcherOpen}
   <div class="tool-launcher-scrim">
     <button type="button" class="modal-backdrop" aria-label="ツールランチャーを閉じる" onclick={closeLauncher}></button>

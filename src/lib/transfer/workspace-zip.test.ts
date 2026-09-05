@@ -11,6 +11,7 @@ import {
   importWorkspace,
   MAX_UNZIPPED_BYTES,
   MAX_ZIP_ENTRIES,
+  mergeImportedWorkspace,
 } from "./workspace-zip";
 
 function withDeclaredUnzippedSize(
@@ -125,6 +126,61 @@ describe("ZIP import guardrails", () => {
       restored.workspace.assets[0]?.id,
     );
     expect(restored.workspace.schemaVersion).toBe(workspace.schemaVersion);
+  });
+
+  it("restores colliding files into an existing workspace with numbered names", async () => {
+    const source = cloneWorkspace(defaultWorkspace);
+    const overview = source.documents.overview;
+    if (!overview) throw new Error("Default overview document is missing");
+    overview.content = "![Pixel](../assets/pixel.png)";
+    const sourceAsset: Asset = {
+      id: "source-pixel",
+      workspaceId: source.id,
+      path: "assets/pixel.png",
+      mediaType: "image/png",
+      byteSize: 3,
+      checksum: "ignored",
+      createdAt: source.createdAt,
+    };
+    source.assets.push(sourceAsset);
+    const destination = cloneWorkspace(defaultWorkspace);
+    destination.assets.push({ ...sourceAsset, id: "existing-pixel" });
+    const bytes = new Uint8Array([1, 2, 3]).buffer;
+    const repository = {
+      mode: "indexeddb" as const,
+      open: async () => source,
+      listWorkspaces: async () => [],
+      save: async () => undefined,
+      putAsset: async () => undefined,
+      getAsset: async (id: string) => (id === sourceAsset.id ? bytes : null),
+      deleteAsset: async () => undefined,
+      createMigrationSnapshot: async () => ({
+        id: "snapshot",
+        workspaceId: source.id,
+        schemaVersion: source.schemaVersion,
+        createdAt: source.createdAt,
+        reason: "test",
+      }),
+      restoreMigrationSnapshot: async () => source,
+    };
+
+    const imported = await importWorkspace(
+      await exportWorkspace(source, repository),
+    );
+    const restored = mergeImportedWorkspace(destination, imported);
+    const documentEntry = restored.workspace.entries.find(
+      (entry) => entry.path === "docs/overview (1).md",
+    );
+
+    expect(documentEntry).toBeDefined();
+    expect(
+      restored.workspace.assets.some(
+        (asset) => asset.path === "assets/pixel (1).png",
+      ),
+    ).toBe(true);
+    expect(restored.workspace.documents[documentEntry?.id ?? ""]?.content).toBe(
+      "![Pixel](../assets/pixel (1).png)",
+    );
   });
 
   it("rejects an export when an asset binary is unavailable", async () => {
