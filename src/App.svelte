@@ -88,7 +88,7 @@ type TextInputRequest = {
   detail?: string;
   label: string;
   value: string;
-  options?: string[];
+  options?: Array<{ label: string; value: string }>;
   placeholder?: string;
   submitLabel: string;
   onSubmit: (value: string) => void;
@@ -457,10 +457,10 @@ async function switchWorkspace(): Promise<void> {
   const choices = await repository.listWorkspaces();
   textInputRequest = {
     title: "ワークスペースを切り替える",
-    detail: "開くワークスペースの ID を選択してください。",
-    label: "ワークスペース ID",
+    detail: "開くワークスペースを選択してください。",
+    label: "ワークスペース名",
     value: workspace?.id ?? "",
-    options: choices.map((item) => item.id),
+    options: choices.map((item) => ({ label: item.name, value: item.id })),
     submitLabel: "開く",
     onSubmit: (selected) => void openWorkspace(selected),
   };
@@ -1324,7 +1324,7 @@ function openImportedDocument(): void {
   {:else}
   <section class="workspace">
     <aside class="sidebar" aria-label="Explorer">
-      <div class="sidebar-title"><span>EXPLORER</span><span><button aria-label="新しい文書" onclick={() => create("markdown")} disabled={!workspace}><FilePlus aria-hidden="true" /></button><button aria-label="新しいフォルダ" onclick={() => create("folder")} disabled={!workspace}><FolderPlus aria-hidden="true" /></button></span></div>
+      <div class="sidebar-title"><span>{workspace?.name ?? ""}</span><span><button aria-label="新しい文書" onclick={() => create("markdown")} disabled={!workspace}><FilePlus aria-hidden="true" /></button><button aria-label="新しいフォルダ" onclick={() => create("folder")} disabled={!workspace}><FolderPlus aria-hidden="true" /></button></span></div>
       {#if workspace}
         <div
           class:drop-target={dropTargetId === null && draggingEntryId !== null}

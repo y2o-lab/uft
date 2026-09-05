@@ -19,7 +19,7 @@
     detail?: string;
     label?: string;
     value?: string;
-    options?: string[];
+    options?: Array<{ label: string; value: string }>;
     placeholder?: string;
     submitLabel?: string;
     onSubmit?: (value: string) => void;
@@ -66,7 +66,7 @@
         {#if options.length}
           <select bind:this={input} id="text-input-dialog-value" bind:value={draft}>
             {#each options as option}
-              <option value={option}>{option}</option>
+              <option value={option.value}>{option.label}</option>
             {/each}
           </select>
         {:else}
