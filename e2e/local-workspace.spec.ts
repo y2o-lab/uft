@@ -146,6 +146,28 @@ test("closes command modals when their backdrop is clicked", async ({ page }) =>
   await expect(page.getByRole("dialog", { name: "Command palette" })).toBeHidden();
 });
 
+test("the command palette scrolls within the modal when its contents are tall", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 320 });
+  await page.goto("/workspace");
+  await expect(page.locator(".cm-content")).toBeVisible();
+
+  await page.keyboard.press("Meta+Shift+K");
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  await expect(palette).toBeVisible();
+  await expect
+    .poll(() =>
+      palette.evaluate((element) => element.scrollHeight > element.clientHeight),
+    )
+    .toBe(true);
+
+  await palette.hover();
+  await page.mouse.wheel(0, 1_000);
+  await expect.poll(() => palette.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await expect(
+    palette.getByRole("button", { name: "プレビューを印刷 / PDF 保存" }),
+  ).toBeVisible();
+});
+
 test("edits are persisted after reload", async ({ page }) => {
   await page.goto("/workspace");
   const editor = page.locator(".cm-content");
