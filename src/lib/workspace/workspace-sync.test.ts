@@ -1,7 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cloneWorkspace, defaultWorkspace } from "../domain/workspace";
-import { createEntry, updateDocument } from "./workspace-service";
+import {
+  createEntry,
+  restoreEntries,
+  softDeleteEntry,
+  updateDocument,
+} from "./workspace-service";
 import { mergeWorkspaces } from "./workspace-sync";
+
+afterEach(() => vi.useRealTimers());
 
 describe("mergeWorkspaces", () => {
   it("keeps independent changes made by two browser tabs", () => {
@@ -42,5 +49,23 @@ describe("mergeWorkspaces", () => {
     expect(mergeWorkspaces(persisted, local).documents.overview?.content).toBe(
       "# Later",
     );
+  });
+
+  it("keeps an entry restored after its deletion was already saved", () => {
+    vi.useFakeTimers();
+    const local = cloneWorkspace(defaultWorkspace);
+
+    vi.setSystemTime(new Date("2026-01-02T00:00:00.000Z"));
+    softDeleteEntry(local, "overview");
+    const persistedDeletion = cloneWorkspace(local);
+
+    // Deliberately restore within the same clock millisecond: restoration must
+    // still win over the saved tombstone when the save snapshots are merged.
+    restoreEntries(local, ["overview"]);
+
+    const merged = mergeWorkspaces(persistedDeletion, local);
+    expect(
+      merged.entries.find((entry) => entry.id === "overview")?.deletedAt,
+    ).toBeNull();
   });
 });
