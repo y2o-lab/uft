@@ -507,6 +507,7 @@ function flattenEntries(
 
 function selectEntry(entry: WorkspaceEntry): void {
   if (entry.kind === "folder") {
+    activeEntryId = entry.id;
     const next = new Set(expanded);
     next.has(entry.id) ? next.delete(entry.id) : next.add(entry.id);
     expanded = next;
