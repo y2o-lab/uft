@@ -206,6 +206,23 @@ test("restores a deleted document after its deletion has been saved", async ({
   await expect(overview).toBeVisible();
 });
 
+test("deletes a folder and its contents", async ({ page }) => {
+  await page.goto("/workspace");
+  const folder = page.locator('[data-entry-path="docs"]');
+  const overview = page.locator('[data-entry-path="docs/overview.md"]');
+  await expect(folder).toBeVisible();
+  await expect(overview).toBeVisible();
+
+  await folder.click();
+  await page.getByRole("button", { name: "削除" }).click();
+  await expect(page.getByRole("dialog")).toContainText("docs");
+  await page.getByRole("dialog").getByRole("button", { name: "削除" }).click();
+
+  await expect(folder).toBeHidden();
+  await expect(overview).toBeHidden();
+  await expect(page.getByRole("button", { name: "削除しました。取り消す" })).toBeVisible();
+});
+
 test("shows a live character count on the Markdown editor", async ({ page }) => {
   await page.goto("/workspace");
   const editor = page.locator(".cm-content");
