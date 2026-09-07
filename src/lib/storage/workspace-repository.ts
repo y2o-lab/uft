@@ -264,6 +264,8 @@ class IndexedDbRepository implements WorkspaceRepository {
     let workspace = activeId
       ? await this.#value<Workspace>("workspace", activeId)
       : undefined;
+    if (id && !workspace)
+      throw new Error("指定されたワークスペースが見つかりません。");
     if (!workspace) {
       const workspaces = await this.#values<Workspace>("workspace");
       workspace = workspaces

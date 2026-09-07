@@ -1,13 +1,15 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { validateDiagramDocument } from "../diagrams/diagram";
-import { normalizePath } from "../domain/tree";
+import { activeEntries, childPath, normalizePath } from "../domain/tree";
 import {
   type Asset,
   cloneWorkspace,
   newId,
   WORKSPACE_SCHEMA_VERSION,
   type Workspace,
+  type WorkspaceEntry,
 } from "../domain/workspace";
+import { relativeAssetPath } from "../markdown/preview";
 import type { WorkspaceRepository } from "../storage/workspace-repository";
 
 export const ZIP_FORMAT_VERSION = 1;
@@ -449,6 +451,214 @@ export async function importWorkspace(
   if (!Object.keys(source.documents).length)
     throw new Error("Markdown 文書を含む ZIP を選択してください。");
   return { workspace: source, binaries };
+}
+
+function numberedName(name: string, number: number): string {
+  const extensionIndex = name.lastIndexOf(".");
+  if (extensionIndex > 0)
+    return `${name.slice(0, extensionIndex)} (${number})${name.slice(extensionIndex)}`;
+  return `${name} (${number})`;
+}
+
+function availableEntryName(
+  workspace: Workspace,
+  parentId: string | null,
+  requestedName: string,
+): string {
+  const names = new Set(
+    activeEntries(workspace)
+      .filter((entry) => entry.parentId === parentId)
+      .map((entry) => entry.name.toLocaleLowerCase()),
+  );
+  if (!names.has(requestedName.toLocaleLowerCase())) return requestedName;
+  for (let number = 1; ; number += 1) {
+    const candidate = numberedName(requestedName, number);
+    if (!names.has(candidate.toLocaleLowerCase())) return candidate;
+  }
+}
+
+function availableAssetPath(
+  workspace: Workspace,
+  requestedPath: string,
+): string {
+  const paths = new Set(workspace.assets.map((asset) => asset.path));
+  if (!paths.has(requestedPath)) return requestedPath;
+  const segments = requestedPath.split("/");
+  const fileName = segments.pop();
+  if (!fileName) throw new Error(`アセットのパスが不正です: ${requestedPath}`);
+  for (let number = 1; ; number += 1) {
+    const candidate = [...segments, numberedName(fileName, number)].join("/");
+    if (!paths.has(candidate)) return candidate;
+  }
+}
+
+function resolveReferencePath(
+  documentPath: string,
+  reference: string,
+): string | null {
+  if (!reference || /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(reference)) return null;
+  const parts = documentPath.split("/").slice(0, -1);
+  for (const segment of reference.split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") {
+      if (!parts.length) return null;
+      parts.pop();
+      continue;
+    }
+    parts.push(segment);
+  }
+  return parts.join("/");
+}
+
+function rewriteAssetReferences(
+  content: string,
+  sourcePath: string,
+  destinationPath: string,
+  importedAssetPaths: Map<string, string>,
+): string {
+  return content.replace(
+    /(!?\[[^\]\n]*\]\()(<)?([^\s<>)]+)(>)?([^)]*)(\))/g,
+    (match, opening, leftAngle, reference, rightAngle, suffix, closing) => {
+      const resolved = resolveReferencePath(sourcePath, reference);
+      const destinationAssetPath = resolved
+        ? importedAssetPaths.get(resolved)
+        : undefined;
+      if (!destinationAssetPath) return match;
+      return `${opening}${leftAngle ?? ""}${relativeAssetPath(destinationPath, destinationAssetPath)}${rightAngle ?? ""}${suffix}${closing}`;
+    },
+  );
+}
+
+/**
+ * Adds the contents of a validated ZIP import to an existing workspace. Folders
+ * with the same name are shared; every other same-folder collision is retained
+ * with a " (1)" suffix before its extension.
+ */
+export function mergeImportedWorkspace(
+  destination: Workspace,
+  imported: { workspace: Workspace; binaries: Map<string, ArrayBuffer> },
+): {
+  workspace: Workspace;
+  binaries: Map<string, ArrayBuffer>;
+  importedEntryIds: string[];
+} {
+  const workspace = cloneWorkspace(destination);
+  const sourceEntries = activeEntries(imported.workspace).sort(
+    (left, right) =>
+      left.path.split("/").length - right.path.split("/").length ||
+      left.sortOrder - right.sortOrder,
+  );
+  const entryIds = new Map<string, string>();
+  const importedEntryIds: string[] = [];
+
+  for (const sourceEntry of sourceEntries) {
+    const parentId = sourceEntry.parentId
+      ? (entryIds.get(sourceEntry.parentId) ?? null)
+      : null;
+    if (sourceEntry.parentId && !entryIds.has(sourceEntry.parentId))
+      throw new Error(`ZIP 内の親フォルダが不正です: ${sourceEntry.path}`);
+    const existingFolder =
+      sourceEntry.kind === "folder"
+        ? activeEntries(workspace).find(
+            (entry) =>
+              entry.parentId === parentId &&
+              entry.kind === "folder" &&
+              entry.name.toLocaleLowerCase() ===
+                sourceEntry.name.toLocaleLowerCase(),
+          )
+        : undefined;
+    if (existingFolder) {
+      entryIds.set(sourceEntry.id, existingFolder.id);
+      continue;
+    }
+    const name = availableEntryName(workspace, parentId, sourceEntry.name);
+    const parent = parentId
+      ? (activeEntries(workspace).find((entry) => entry.id === parentId) ??
+        null)
+      : null;
+    const id = newId(sourceEntry.kind);
+    const entry: WorkspaceEntry = {
+      ...sourceEntry,
+      id,
+      workspaceId: workspace.id,
+      parentId,
+      name,
+      path: childPath(parent, name),
+      sortOrder: activeEntries(workspace).filter(
+        (candidate) => candidate.parentId === parentId,
+      ).length,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      deletedAt: null,
+    };
+    workspace.entries.push(entry);
+    entryIds.set(sourceEntry.id, id);
+    importedEntryIds.push(id);
+  }
+
+  const assetIds = new Map<string, string>();
+  const assetPaths = new Map<string, string>();
+  const binaries = new Map<string, ArrayBuffer>();
+  for (const sourceAsset of imported.workspace.assets) {
+    const id = newId("asset");
+    const path = availableAssetPath(workspace, sourceAsset.path);
+    workspace.assets.push({
+      ...sourceAsset,
+      id,
+      workspaceId: workspace.id,
+      path,
+      createdAt: new Date().toISOString(),
+    });
+    assetIds.set(sourceAsset.id, id);
+    assetPaths.set(sourceAsset.path, path);
+    const binary = imported.binaries.get(sourceAsset.id);
+    if (!binary)
+      throw new Error(`アセットを読み出せませんでした: ${sourceAsset.path}`);
+    binaries.set(id, binary);
+  }
+
+  for (const sourceEntry of sourceEntries) {
+    const destinationId = entryIds.get(sourceEntry.id);
+    if (!destinationId || sourceEntry.kind === "folder") continue;
+    const destinationEntry = workspace.entries.find(
+      (entry) => entry.id === destinationId,
+    );
+    if (!destinationEntry) continue;
+    if (sourceEntry.kind === "markdown") {
+      const document = imported.workspace.documents[sourceEntry.id];
+      if (!document)
+        throw new Error(
+          `Markdown 文書を読み出せませんでした: ${sourceEntry.path}`,
+        );
+      workspace.documents[destinationId] = {
+        ...document,
+        entryId: destinationId,
+        content: rewriteAssetReferences(
+          document.content,
+          sourceEntry.path,
+          destinationEntry.path,
+          assetPaths,
+        ),
+        updatedAt: destinationEntry.updatedAt,
+      };
+    } else {
+      const diagram = imported.workspace.diagrams[sourceEntry.id];
+      if (!diagram)
+        throw new Error(
+          `図表データを読み出せませんでした: ${sourceEntry.path}`,
+        );
+      workspace.diagrams[destinationId] = {
+        ...diagram,
+        entryId: destinationId,
+        previewAssetId: diagram.previewAssetId
+          ? (assetIds.get(diagram.previewAssetId) ?? null)
+          : null,
+        updatedAt: destinationEntry.updatedAt,
+      };
+    }
+  }
+  workspace.updatedAt = new Date().toISOString();
+  return { workspace, binaries, importedEntryIds };
 }
 
 export function download(blob: Blob, fileName: string): void {
