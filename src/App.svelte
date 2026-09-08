@@ -15,6 +15,7 @@ import {
   Files,
   FolderPlus,
   House,
+  Globe2,
   Minus,
   Pencil,
   Save,
@@ -30,6 +31,7 @@ import MarkdownPreview from "./lib/components/MarkdownPreview.svelte";
 import MarkdownDiff from "./lib/components/MarkdownDiff.svelte";
 import Toast from "./lib/components/Toast.svelte";
 import ErrorPage from "./lib/components/ErrorPage.svelte";
+import IpToolkit from "./lib/components/IpToolkit.svelte";
 import { activeEntries, canMoveEntry, orderedChildren } from "./lib/domain/tree";
 import {
   type Asset,
@@ -73,7 +75,7 @@ import {
 import type { Component } from "svelte";
 
 type Mode = "source" | "split" | "preview" | "diff";
-type AppPage = "launcher" | "workspace" | "document-import" | "not-found";
+type AppPage = "launcher" | "workspace" | "document-import" | "ip-toolkit" | "not-found";
 type LauncherTool = {
   id: string;
   href: string;
@@ -85,6 +87,7 @@ type LauncherTool = {
 function currentPage(): AppPage {
   if (window.location.pathname === "/convert-to-markdown")
     return "document-import";
+  if (window.location.pathname === "/ip-toolkit") return "ip-toolkit";
   if (window.location.pathname === "/workspace") return "workspace";
   if (window.location.pathname === "/") return "launcher";
   return "not-found";
@@ -124,6 +127,7 @@ let importingDocuments = $state(false);
 let completedImportEntry = $state<WorkspaceEntry | null>(null);
 let page = $state<AppPage>(currentPage());
 let isDocumentImport = $derived(page === "document-import");
+let isIpToolkit = $derived(page === "ip-toolkit");
 let isLauncher = $derived(page === "launcher");
 let isNotFound = $derived(page === "not-found");
 let launcherQuery = $state("");
@@ -194,6 +198,13 @@ const launcherTools: LauncherTool[] = [
     name: "文書を Markdown に変換",
     description: "ローカルの Word、PDF、表計算ファイルなどを imports/ へ追加",
   },
+  {
+    id: "ip-toolkit",
+    href: "/ip-toolkit",
+    icon: Globe2,
+    name: "IP Toolkit",
+    description: "IP 判定、CIDR 計算、IPv4 / IPv6 変換、ログ抽出と Lookup",
+  },
 ];
 let matchingLauncherTools = $derived(
   launcherTools.filter((tool) => {
@@ -233,7 +244,7 @@ const commands: Array<{ name: string; action: () => void }> = [
 
 onMount(() => {
   if (isNotFound) return;
-  const boot = isLauncher
+  const boot = isLauncher || isIpToolkit
     ? undefined
     : window.setTimeout(() => void initialize(), 0);
   const onKey = (event: KeyboardEvent) => {
@@ -1101,6 +1112,8 @@ function openImportedDocument(): void {
       <p class="launcher-footnote">新しいツールはこのランチャーから追加・起動できる設計です。</p>
     </section>
   </main>
+{:else if isIpToolkit}
+  <IpToolkit />
 {:else}
 <main class:document-import-page={isDocumentImport} class="app-shell">
   <header class="topbar">
