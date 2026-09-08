@@ -15,8 +15,10 @@ import {
   Files,
   FolderPlus,
   House,
+  Globe2,
   Minus,
   Pencil,
+  Search,
   Save,
   Trash2,
   Undo2,
@@ -31,6 +33,7 @@ import MarkdownPreview from "./lib/components/MarkdownPreview.svelte";
 import MarkdownDiff from "./lib/components/MarkdownDiff.svelte";
 import Toast from "./lib/components/Toast.svelte";
 import ErrorPage from "./lib/components/ErrorPage.svelte";
+import IpToolkit from "./lib/components/IpToolkit.svelte";
 import { activeEntries, canMoveEntry, orderedChildren } from "./lib/domain/tree";
 import {
   type Asset,
@@ -75,7 +78,7 @@ import {
 import type { Component } from "svelte";
 
 type Mode = "source" | "split" | "preview" | "diff";
-type AppPage = "launcher" | "workspace" | "document-import" | "not-found";
+type AppPage = "launcher" | "workspace" | "document-import" | "ip-toolkit" | "not-found";
 type LauncherTool = {
   id: string;
   href: string;
@@ -97,6 +100,7 @@ type TextInputRequest = {
 function currentPage(): AppPage {
   if (window.location.pathname === "/convert-to-markdown")
     return "document-import";
+  if (window.location.pathname === "/ip-toolkit") return "ip-toolkit";
   if (window.location.pathname === "/workspace") return "workspace";
   if (window.location.pathname === "/") return "launcher";
   return "not-found";
@@ -138,6 +142,7 @@ let importingDocuments = $state(false);
 let completedImportEntry = $state<WorkspaceEntry | null>(null);
 let page = $state<AppPage>(currentPage());
 let isDocumentImport = $derived(page === "document-import");
+let isIpToolkit = $derived(page === "ip-toolkit");
 let isLauncher = $derived(page === "launcher");
 let isNotFound = $derived(page === "not-found");
 let launcherQuery = $state("");
@@ -208,6 +213,13 @@ const launcherTools: LauncherTool[] = [
     name: "文書を Markdown に変換",
     description: "ローカルの Word、PDF、表計算ファイルなどを imports/ へ追加",
   },
+  {
+    id: "ip-toolkit",
+    href: "/ip-toolkit",
+    icon: Globe2,
+    name: "IP Toolkit",
+    description: "IP 判定、CIDR 計算、IPv4 / IPv6 変換、ログ抽出と Lookup",
+  },
 ];
 let matchingLauncherTools = $derived(
   launcherTools.filter((tool) => {
@@ -247,13 +259,14 @@ const commands: Array<{ name: string; action: () => void }> = [
 ];
 
 onMount(() => {
-  if (isNotFound) return;
-  const boot = isLauncher
+  const boot = isLauncher || isIpToolkit || isNotFound
     ? undefined
     : window.setTimeout(() => void initialize(), 0);
   const onKey = (event: KeyboardEvent) => {
     if (
       !isLauncher &&
+      !isIpToolkit &&
+      !isNotFound &&
       (event.metaKey || event.ctrlKey) &&
       event.altKey &&
       event.key.toLowerCase() === "n"
@@ -262,7 +275,13 @@ onMount(() => {
       createWorkspace();
       return;
     }
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+    if (
+      !isLauncher &&
+      !isIpToolkit &&
+      !isNotFound &&
+      (event.metaKey || event.ctrlKey) &&
+      event.key.toLowerCase() === "s"
+    ) {
       event.preventDefault();
       void saveNow();
     }
@@ -273,7 +292,7 @@ onMount(() => {
         else openLauncher();
         return;
       }
-      if (!isLauncher) paletteOpen = true;
+      if (!isLauncher && !isIpToolkit && !isNotFound) paletteOpen = true;
     }
     if (event.key === "Escape") {
       if (comparisonPickerOpen) {
@@ -458,9 +477,9 @@ async function switchWorkspace(): Promise<void> {
   textInputRequest = {
     title: "ワークスペースを切り替える",
     detail: "開くワークスペースを選択してください。",
-    label: "ワークスペース名",
+    label: "ワークスペース ID",
     value: workspace?.id ?? "",
-    options: choices.map((item) => ({ label: item.name, value: item.id })),
+    options: choices.map((item) => ({ label: item.id, value: item.id })),
     submitLabel: "開く",
     onSubmit: (selected) => void openWorkspace(selected),
   };
@@ -1247,11 +1266,12 @@ function openImportedDocument(): void {
     code="404"
     title="ページが見つかりません"
     description="URLをご確認のうえ、ホームから目的のツールを選択してください。"
+    onOpenLauncher={openLauncher}
   />
 {:else if isLauncher}
   <main class="launcher-page">
     <header class="launcher-topbar">
-      <div class="brand"><span class="brand-mark">u</span><span>uft</span></div>
+      <a class="brand" href="/" aria-label="UFT ホーム"><span class="brand-mark">u</span><span>uft</span></a>
       <span>LOCAL-FIRST TOOLKIT</span>
     </header>
     <section class="launcher-content" aria-labelledby="launcher-title">
@@ -1276,16 +1296,19 @@ function openImportedDocument(): void {
       <p class="launcher-footnote">新しいツールはこのランチャーから追加・起動できる設計です。</p>
     </section>
   </main>
+{:else if isIpToolkit}
+  <IpToolkit onOpenLauncher={openLauncher} />
 {:else}
 <main class:document-import-page={isDocumentImport} class="app-shell">
   <header class="topbar">
-    <div class="brand"><span class="brand-mark">u</span><span>uft</span></div>
+    <a class="brand" href="/" aria-label="UFT ホーム"><span class="brand-mark">u</span><span>uft</span></a>
     <div class="document-chip">{isDocumentImport ? "文書を Markdown に変換" : documentTitle}</div>
     <div class="top-actions">
       {#if isDocumentImport}
+        <button class="button-with-icon" onclick={openLauncher}><Search aria-hidden="true" />ツールを検索 <kbd>⌘ K</kbd></button>
         <a class="top-link" href="/">ホームへ戻る</a>
       {:else}
-        <a class="top-link button-with-icon" href="/"><House aria-hidden="true" />ホーム</a><button class="button-with-icon" onclick={createWorkspace} disabled={!repository}><FilePlus aria-hidden="true" />新規 WS <kbd>⌘ ⌥ N</kbd></button><button class="button-with-icon" onclick={navigateToDocumentImport}><FileInput aria-hidden="true" />文書を変換</button><button class="button-with-icon" onclick={() => paletteOpen = true} disabled={!workspace}><Command aria-hidden="true" />コマンド <kbd>⌘ ⇧ K</kbd></button><button class="button-with-icon" onclick={backup} disabled={!workspace}><Download aria-hidden="true" />ZIP バックアップ</button><button class="save-button button-with-icon" onclick={saveNow} disabled={!workspace}><Save aria-hidden="true" />保存 <kbd>⌘ S</kbd></button>
+        <a class="top-link button-with-icon" href="/"><House aria-hidden="true" />ホーム</a><button class="button-with-icon" onclick={openLauncher}><Search aria-hidden="true" />ツールを検索 <kbd>⌘ K</kbd></button><button class="button-with-icon" onclick={createWorkspace} disabled={!repository}><FilePlus aria-hidden="true" />新規 WS <kbd>⌘ ⌥ N</kbd></button><button class="button-with-icon" onclick={navigateToDocumentImport}><FileInput aria-hidden="true" />文書を変換</button><button class="button-with-icon" onclick={() => paletteOpen = true} disabled={!workspace}><Command aria-hidden="true" />コマンド <kbd>⌘ ⇧ K</kbd></button><button class="button-with-icon" onclick={backup} disabled={!workspace}><Download aria-hidden="true" />ZIP バックアップ</button><button class="save-button button-with-icon" onclick={saveNow} disabled={!workspace}><Save aria-hidden="true" />保存 <kbd>⌘ S</kbd></button>
       {/if}
     </div>
   </header>
@@ -1392,6 +1415,7 @@ function openImportedDocument(): void {
 <ConfirmDialog open={Boolean(deleteTarget)} title="項目を削除しますか？" detail={deleteTarget ? `「${deleteTarget.path}」とその子項目をこのセッションから削除します。` : ""} onCancel={() => deleteTarget = null} onConfirm={remove} />
 <TextInputDialog open={Boolean(textInputRequest)} title={textInputRequest?.title} detail={textInputRequest?.detail} label={textInputRequest?.label} value={textInputRequest?.value} options={textInputRequest?.options} placeholder={textInputRequest?.placeholder} submitLabel={textInputRequest?.submitLabel} onCancel={() => textInputRequest = null} onSubmit={(value) => { const request = textInputRequest; textInputRequest = null; request?.onSubmit(value); }} />
 {#if undoDeleteAvailable}<button class="undo-toast button-with-icon" onclick={undoDelete}><Undo2 aria-hidden="true" />削除しました。取り消す</button>{/if}<Toast message={toast} />
+{/if}
 {#if launcherOpen}
   <div class="tool-launcher-scrim">
     <button type="button" class="modal-backdrop" aria-label="ツールランチャーを閉じる" onclick={closeLauncher}></button>
@@ -1414,5 +1438,4 @@ function openImportedDocument(): void {
       <footer><span>↑↓ 選択</span><span>↵ 開く</span><span>Esc 閉じる</span></footer>
     </dialog>
   </div>
-{/if}
 {/if}
