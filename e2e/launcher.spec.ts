@@ -74,3 +74,37 @@ test("global launcher shortcut opens an overlay without leaving the workspace", 
   await expect(launcher).toBeHidden();
   await expect(page.locator(".cm-content")).toBeVisible();
 });
+
+test("every page can open and search the tool launcher", async ({ page }) => {
+  for (const path of [
+    "/workspace",
+    "/convert-to-markdown",
+    "/ip-toolkit",
+    "/missing-page",
+  ]) {
+    await page.goto(path);
+    await page.getByRole("button", { name: /ツールを検索/ }).click();
+
+    const launcher = page.getByRole("dialog", { name: "ツールランチャー" });
+    const search = launcher.getByRole("textbox");
+    await expect(launcher).toBeVisible();
+    await expect(search).toBeFocused();
+    await search.fill("IP");
+    await expect(
+      launcher.getByRole("link", {
+        name: "IP Toolkit IP 判定、CIDR 計算、IPv4 / IPv6 変換、ログ抽出と Lookup ↵",
+      }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(launcher).toBeHidden();
+  }
+});
+
+test("the launcher shortcut also works on the not-found page", async ({ page }) => {
+  await page.goto("/missing-page");
+  await page.keyboard.press("Meta+K");
+
+  const launcher = page.getByRole("dialog", { name: "ツールランチャー" });
+  await expect(launcher).toBeVisible();
+  await expect(launcher.getByRole("textbox")).toBeFocused();
+});

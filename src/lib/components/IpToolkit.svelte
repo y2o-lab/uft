@@ -27,6 +27,10 @@
   import { lookupPublicIp, type PublicIpInfo } from "../ip/ipwhois";
 
   type Section = "lookup" | "inspect" | "network" | "convert" | "bulk";
+  type IpToolkitProps = {
+    onOpenLauncher?: () => void;
+  };
+  let { onOpenLauncher }: IpToolkitProps = $props();
   const labels: Record<Section, string> = { lookup: "Lookup", inspect: "Inspect", network: "Network", convert: "Convert", bulk: "Bulk" };
   const categoryLabels: Record<string, string> = {
     public: "Public", private: "Private", loopback: "Loopback", "link-local": "Link-local", multicast: "Multicast", documentation: "Documentation", benchmarking: "Benchmarking", "carrier-grade-nat": "Carrier-grade NAT", reserved: "Reserved", unspecified: "Unspecified",
@@ -153,7 +157,7 @@
 <svelte:head><title>IP Toolkit — uft</title><meta name="description" content="Local-first IPv4 and IPv6 inspection, network calculation, conversion, and ipwhois.io lookup." /></svelte:head>
 
 <main class="ip-page">
-  <header class="ip-topbar"><a class="ip-home" href="/" aria-label="UFT ホーム"><span class="brand-mark">u</span><span>uft</span></a><span>IP TOOLKIT</span></header>
+  <header class="ip-topbar"><a class="ip-home" href="/" aria-label="UFT ホーム"><span class="brand-mark">u</span><span>uft</span></a><div class="ip-top-actions"><button type="button" onclick={onOpenLauncher}><Search aria-hidden="true" />ツールを検索 <kbd>⌘ K</kbd></button><span>IP TOOLKIT</span></div></header>
   <section class="ip-hero"><p class="ip-eyebrow">LOCAL-FIRST NETWORK UTILITIES</p><h1>IP Toolkit</h1><p>IPv4 / IPv6 の判定・計算・変換はブラウザ内で完結します。Public IP の国・ASN 情報だけを ipwhois.io に照会します。</p></section>
   <section class="ip-toolbox" aria-label="IP Toolkit">
     <nav class="ip-tabs" aria-label="機能カテゴリ">{#each Object.entries(labels) as [id, label]}<button class:active={section === id} onclick={() => section = id as Section}>{label}</button>{/each}</nav>

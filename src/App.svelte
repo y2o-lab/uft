@@ -18,6 +18,7 @@ import {
   Globe2,
   Minus,
   Pencil,
+  Search,
   Save,
   Trash2,
   Undo2,
@@ -243,12 +244,17 @@ const commands: Array<{ name: string; action: () => void }> = [
 ];
 
 onMount(() => {
-  if (isNotFound) return;
-  const boot = isLauncher || isIpToolkit
+  const boot = isLauncher || isIpToolkit || isNotFound
     ? undefined
     : window.setTimeout(() => void initialize(), 0);
   const onKey = (event: KeyboardEvent) => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+    if (
+      !isLauncher &&
+      !isIpToolkit &&
+      !isNotFound &&
+      (event.metaKey || event.ctrlKey) &&
+      event.key.toLowerCase() === "s"
+    ) {
       event.preventDefault();
       void saveNow();
     }
@@ -259,7 +265,7 @@ onMount(() => {
         else openLauncher();
         return;
       }
-      if (!isLauncher) paletteOpen = true;
+      if (!isLauncher && !isIpToolkit && !isNotFound) paletteOpen = true;
     }
     if (event.key === "Escape") {
       if (comparisonPickerOpen) {
@@ -1083,6 +1089,7 @@ function openImportedDocument(): void {
     code="404"
     title="ページが見つかりません"
     description="URLをご確認のうえ、ホームから目的のツールを選択してください。"
+    onOpenLauncher={openLauncher}
   />
 {:else if isLauncher}
   <main class="launcher-page">
@@ -1113,7 +1120,7 @@ function openImportedDocument(): void {
     </section>
   </main>
 {:else if isIpToolkit}
-  <IpToolkit />
+  <IpToolkit onOpenLauncher={openLauncher} />
 {:else}
 <main class:document-import-page={isDocumentImport} class="app-shell">
   <header class="topbar">
@@ -1121,9 +1128,10 @@ function openImportedDocument(): void {
     <div class="document-chip">{isDocumentImport ? "文書を Markdown に変換" : documentTitle}</div>
     <div class="top-actions">
       {#if isDocumentImport}
+        <button class="button-with-icon" onclick={openLauncher}><Search aria-hidden="true" />ツールを検索 <kbd>⌘ K</kbd></button>
         <a class="top-link" href="/">ホームへ戻る</a>
       {:else}
-        <a class="top-link button-with-icon" href="/"><House aria-hidden="true" />ホーム</a><button class="button-with-icon" onclick={navigateToDocumentImport}><FileInput aria-hidden="true" />文書を変換</button><button class="button-with-icon" onclick={() => paletteOpen = true} disabled={!workspace}><Command aria-hidden="true" />コマンド <kbd>⌘ ⇧ K</kbd></button><button class="button-with-icon" onclick={backup} disabled={!workspace}><Download aria-hidden="true" />ZIP バックアップ</button><button class="save-button button-with-icon" onclick={saveNow} disabled={!workspace}><Save aria-hidden="true" />保存 <kbd>⌘ S</kbd></button>
+        <a class="top-link button-with-icon" href="/"><House aria-hidden="true" />ホーム</a><button class="button-with-icon" onclick={openLauncher}><Search aria-hidden="true" />ツールを検索 <kbd>⌘ K</kbd></button><button class="button-with-icon" onclick={navigateToDocumentImport}><FileInput aria-hidden="true" />文書を変換</button><button class="button-with-icon" onclick={() => paletteOpen = true} disabled={!workspace}><Command aria-hidden="true" />コマンド <kbd>⌘ ⇧ K</kbd></button><button class="button-with-icon" onclick={backup} disabled={!workspace}><Download aria-hidden="true" />ZIP バックアップ</button><button class="save-button button-with-icon" onclick={saveNow} disabled={!workspace}><Save aria-hidden="true" />保存 <kbd>⌘ S</kbd></button>
       {/if}
     </div>
   </header>
@@ -1229,6 +1237,7 @@ function openImportedDocument(): void {
 {#if paletteOpen}<div class="palette-scrim"><dialog open class="palette" aria-label="Command palette"><input bind:value={query} placeholder="コマンドを検索…" />{#each commands as commandItem}{#if !query || commandItem.name.includes(query)}<button onclick={() => command(commandItem.action)}>{commandItem.name}</button>{/if}{/each}</dialog></div>{/if}
 <ConfirmDialog open={Boolean(deleteTarget)} title="項目を削除しますか？" detail={deleteTarget ? `「${deleteTarget.path}」とその子項目をこのセッションから削除します。` : ""} onCancel={() => deleteTarget = null} onConfirm={remove} />
 {#if toast}<button class="undo-toast button-with-icon" onclick={undoDelete}><Undo2 aria-hidden="true" />{toast}</button>{/if}<Toast message="" />
+{/if}
 {#if launcherOpen}
   <div class="tool-launcher-scrim">
     <dialog open class="tool-launcher-dialog" aria-label="ツールランチャー">
@@ -1250,5 +1259,4 @@ function openImportedDocument(): void {
       <footer><span>↑↓ 選択</span><span>↵ 開く</span><span>Esc 閉じる</span></footer>
     </dialog>
   </div>
-{/if}
 {/if}

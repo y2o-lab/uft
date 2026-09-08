@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { House } from "@lucide/svelte";
+  import { House, Search } from "@lucide/svelte";
   type ErrorPageProps = {
     code: string;
     title: string;
@@ -7,6 +7,7 @@
     actionLabel?: string;
     actionHref?: string;
     onAction?: () => void;
+    onOpenLauncher?: () => void;
   };
 
   let {
@@ -16,6 +17,7 @@
     actionLabel = "ホームへ戻る",
     actionHref = "/",
     onAction,
+    onOpenLauncher,
   }: ErrorPageProps = $props();
 </script>
 
@@ -32,6 +34,9 @@
     <h1 id="error-title">{title}</h1>
     <p>{description}</p>
     <div class="error-actions">
+      {#if onOpenLauncher}
+        <button type="button" class="secondary-action button-with-icon" onclick={onOpenLauncher}><Search aria-hidden="true" />ツールを検索 <kbd>⌘ K</kbd></button>
+      {/if}
       {#if onAction}
         <button type="button" onclick={onAction}>{actionLabel}</button>
       {:else}
