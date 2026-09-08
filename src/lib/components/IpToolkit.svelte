@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { ArrowLeft, Copy, Globe2, LoaderCircle, Search } from "@lucide/svelte";
+  import { Copy, Globe2, LoaderCircle, Search } from "@lucide/svelte";
   import {
     cidrDetails,
     classifyIp,
@@ -153,7 +153,7 @@
 <svelte:head><title>IP Toolkit — uft</title><meta name="description" content="Local-first IPv4 and IPv6 inspection, network calculation, conversion, and ipwhois.io lookup." /></svelte:head>
 
 <main class="ip-page">
-  <header class="ip-topbar"><a class="ip-home" href="/"><ArrowLeft aria-hidden="true" /> uft</a><span>IP TOOLKIT</span></header>
+  <header class="ip-topbar"><a class="ip-home" href="/" aria-label="UFT ホーム"><span class="brand-mark">u</span><span>uft</span></a><span>IP TOOLKIT</span></header>
   <section class="ip-hero"><p class="ip-eyebrow">LOCAL-FIRST NETWORK UTILITIES</p><h1>IP Toolkit</h1><p>IPv4 / IPv6 の判定・計算・変換はブラウザ内で完結します。Public IP の国・ASN 情報だけを ipwhois.io に照会します。</p></section>
   <section class="ip-toolbox" aria-label="IP Toolkit">
     <nav class="ip-tabs" aria-label="機能カテゴリ">{#each Object.entries(labels) as [id, label]}<button class:active={section === id} onclick={() => section = id as Section}>{label}</button>{/each}</nav>

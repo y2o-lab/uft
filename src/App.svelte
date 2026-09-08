@@ -1087,7 +1087,7 @@ function openImportedDocument(): void {
 {:else if isLauncher}
   <main class="launcher-page">
     <header class="launcher-topbar">
-      <div class="brand"><span class="brand-mark">u</span><span>uft</span></div>
+      <a class="brand" href="/" aria-label="UFT ホーム"><span class="brand-mark">u</span><span>uft</span></a>
       <span>LOCAL-FIRST TOOLKIT</span>
     </header>
     <section class="launcher-content" aria-labelledby="launcher-title">
@@ -1117,7 +1117,7 @@ function openImportedDocument(): void {
 {:else}
 <main class:document-import-page={isDocumentImport} class="app-shell">
   <header class="topbar">
-    <div class="brand"><span class="brand-mark">u</span><span>uft</span></div>
+    <a class="brand" href="/" aria-label="UFT ホーム"><span class="brand-mark">u</span><span>uft</span></a>
     <div class="document-chip">{isDocumentImport ? "文書を Markdown に変換" : documentTitle}</div>
     <div class="top-actions">
       {#if isDocumentImport}

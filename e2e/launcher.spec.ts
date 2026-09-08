@@ -7,6 +7,10 @@ test("launcher gives direct access to the workspace and document conversion", as
   await expect(
     page.getByRole("heading", { name: "作業を始めるツールを選択" }),
   ).toBeVisible();
+  await expect(page.getByRole("link", { name: "UFT ホーム" })).toHaveAttribute(
+    "href",
+    "/",
+  );
 
   const workspace = page.getByRole("link", {
     name: "Markdown ワークスペース 文書の作成、編集、プレビュー、ZIP バックアップ",
@@ -16,6 +20,19 @@ test("launcher gives direct access to the workspace and document conversion", as
   });
   await expect(workspace).toHaveAttribute("href", "/workspace");
   await expect(converter).toHaveAttribute("href", "/convert-to-markdown");
+});
+
+test("every non-home page header brand returns to the home page", async ({ page }) => {
+  for (const path of [
+    "/workspace",
+    "/convert-to-markdown",
+    "/ip-toolkit",
+    "/missing-page",
+  ]) {
+    await page.goto(path);
+    await page.getByRole("link", { name: "UFT ホーム" }).click();
+    await expect(page).toHaveURL(/\/$/);
+  }
 });
 
 test("launcher filters tools and opens its search with the keyboard", async ({

@@ -10,6 +10,11 @@ test("IP Toolkit is discoverable and its local tools work without an API token",
 
   await page.goto("/ip-toolkit");
   await expect(page.getByRole("heading", { name: "IP Toolkit" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "UFT ホーム" })).toHaveAttribute(
+    "href",
+    "/",
+  );
+  await expect(page.locator(".ip-home .brand-mark")).toHaveText("u");
 
   await page.getByRole("button", { name: "Inspect" }).click();
   const inspectInput = page.getByRole("textbox", { name: "IP address" });
