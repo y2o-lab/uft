@@ -41,9 +41,6 @@ jobs:
       - name: Check lint rules
         run: pnpm exec biome check . --formatter-enabled=false --assist-enabled=false
 
-      - name: Check source file sizes
-        run: pnpm check:file-size
-
   format:
     name: Format
     if: ${{ hashFiles('package.json') != '' && hashFiles('pnpm-lock.yaml') != '' }}

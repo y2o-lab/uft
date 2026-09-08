@@ -2,12 +2,55 @@
   "$schema": "https://biomejs.dev/schemas/2.5.8/schema.json",
   "files": {
     "includes": [
+      "src/**/*.ts",
+      "src/**/*.svelte",
+      "vite.config.ts",
+      "biome.json"
+    ]
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "includes": [
       "src/main.tsx",
       "src/lib/**/*.ts",
       "vite.config.ts",
       "biome.json"
     ]
   },
-  "formatter": { "indentStyle": "space", "indentWidth": 2 },
-  "linter": { "enabled": true }
+  "assist": {
+    "includes": [
+      "src/main.tsx",
+      "src/lib/**/*.ts",
+      "vite.config.ts",
+      "biome.json"
+    ]
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "style": {
+        "noExcessiveLinesPerFile": {
+          "level": "error",
+          "options": { "maxLines": 1100 }
+        }
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["src/**/*.svelte"],
+      "linter": {
+        "rules": {
+          "preset": "none",
+          "style": {
+            "noExcessiveLinesPerFile": {
+              "level": "error",
+              "options": { "maxLines": 1100 }
+            }
+          }
+        }
+      }
+    }
+  ]
 }
