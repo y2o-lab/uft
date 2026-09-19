@@ -18,6 +18,7 @@
     "pages:deploy": "wrangler pages deploy dist --project-name uft"
   },
   "dependencies": {
+    "@aws-icons/svg": "4.1.1",
     "@codemirror/commands": "6.10.4",
     "@codemirror/lang-markdown": "6.5.2",
     "@codemirror/state": "6.7.1",

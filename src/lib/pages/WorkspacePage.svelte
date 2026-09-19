@@ -59,6 +59,7 @@ import {
 import { mergeWorkspaces } from "../workspace/workspace-sync";
 import { createWorkspaceSession } from "../workspace/workspace-session";
 import { graphToMermaid, graphToSvg } from "../diagrams/diagram";
+import { DIAGRAM_TEMPLATES, createDiagramTemplate } from "../diagrams/templates";
 import type { Component } from "svelte";
 
 type Mode = "source" | "split" | "preview" | "diff";
@@ -460,9 +461,13 @@ function createWithName(kind: EntryKind, parentId: string | null, name: string):
 function requestDiagramTemplate(entryId: string): void {
   textInputRequest = {
     title: "図表テンプレートを選択",
-    detail: "flow、architecture、er から選択してください。",
+    detail: "後からキャンバス上でも別のテンプレートへ切り替えられます。",
     label: "テンプレート",
     value: "flow",
+    options: DIAGRAM_TEMPLATES.map((template) => ({
+      label: template.label,
+      value: template.id,
+    })),
     submitLabel: "適用",
     onSubmit: (template) => applyDiagramTemplate(entryId, template),
   };
@@ -470,24 +475,18 @@ function requestDiagramTemplate(entryId: string): void {
 
 function applyDiagramTemplate(entryId: string, template: string): void {
   const diagram = workspace?.diagrams[entryId];
-  if (!diagram) return;
-  const labels =
-    template === "architecture"
-      ? ["Client", "Gateway", "Service", "Database"]
-      : template === "er"
-        ? ["User", "Order", "Item"]
-        : ["Start", "Review", "Finish"];
-  diagram.graph.nodes = labels.map((label, index) => ({
-    id: `node-${index + 1}`,
-    position: { x: 70 + index * 210, y: 100 },
-    data: { label },
-  }));
-  diagram.graph.edges = labels.slice(1).map((_, index) => ({
-    id: `edge-${index + 1}`,
-    source: `node-${index + 1}`,
-    target: `node-${index + 2}`,
-  }));
-  scheduleSave();
+  if (!workspace || !diagram) return;
+  const next = createDiagramTemplate(template);
+  const updatedDiagram = {
+    ...diagram,
+    graph: {
+      ...diagram.graph,
+      nodes: next.nodes,
+      edges: next.edges,
+    },
+  };
+  workspace.diagrams[entryId] = updatedDiagram;
+  void saveDiagram(updatedDiagram);
 }
 
 function rename(): void {

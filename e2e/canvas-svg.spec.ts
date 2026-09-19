@@ -12,15 +12,16 @@ test("a canvas diagram saves its SVG and can be embedded in Markdown", async ({
   await expect(page.getByText("複数タブ同期モードで動作中")).toBeVisible();
   await page.keyboard.press("Meta+Shift+K");
   await page.getByRole("button", { name: "新しい図表" }).click();
-  const input = page.locator("#text-input-dialog-value");
-  await input.fill("System flow");
-  await input.press("Enter");
-  await expect(input).toBeVisible();
-  await input.fill("flow");
-  await input.press("Enter");
+  const dialogValue = page.locator("#text-input-dialog-value");
+  await dialogValue.fill("System flow");
+  await dialogValue.press("Enter");
+  await expect(dialogValue).toBeVisible();
+  await dialogValue.selectOption("flow");
+  await page.getByRole("button", { name: "適用", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "System flow" })).toBeVisible();
   await expect(page.locator(".svelte-flow")).toBeVisible();
+  await expect(page.locator(".diagram-node.decision")).toHaveCount(1);
   await expect(
     page.getByRole("button", { name: "Markdown に SVG を挿入" }).locator("svg.lucide-file-output"),
   ).toBeVisible();
@@ -30,6 +31,37 @@ test("a canvas diagram saves its SVG and can be embedded in Markdown", async ({
   await expect(
     page.getByRole("button", { name: "選択を削除" }).locator("svg.lucide-trash-2"),
   ).toBeVisible();
+  await expect(page.getByLabel("追加するノードの種類")).toContainText("AWS Lambda");
+  await expect(page.getByLabel("接続線の向き")).toContainText("双方向");
+  await expect(page.getByLabel("接続線の形")).toContainText("角丸直交");
+
+  await page.getByLabel("図表テンプレート").selectOption("aws-web");
+  await page.getByRole("button", { name: "展開" }).click();
+  await expect(page.locator(".diagram-node.aws")).toHaveCount(6);
+  await expect(
+    page.locator(".diagram-node.aws .svelte-flow__handle"),
+  ).toHaveCount(24);
+  await expect(page.locator(".diagram-node.aws img").first()).toHaveAttribute(
+    "src",
+    /^data:image\/svg\+xml/,
+  );
+
+  const canvasEdges = page.locator(".svelte-flow__edge");
+  await expect(canvasEdges).toHaveCount(5);
+  await canvasEdges.first().press("Enter");
+  await expect(canvasEdges.first()).toHaveClass(/selected/);
+  await page.getByLabel("接続線の向き").selectOption("both");
+  await page.getByLabel("接続線の線種").selectOption("dashed");
+  await page.getByLabel("接続線のラベル").fill("request / response");
+  await page.getByRole("button", { name: "選択線に適用" }).click();
+  const updatedPath = page.locator(
+    '.svelte-flow__edge[data-id="route53-cloudfront"] path.svelte-flow__edge-path',
+  );
+  await expect(updatedPath).toHaveAttribute("marker-start", /^url\(/);
+  await expect(updatedPath).toHaveAttribute(
+    "style",
+    /stroke-dasharray: 7, 5/,
+  );
 
   // Insertion must wait for SVG persistence instead of leaving a reference to
   // a generated-but-not-yet-stored asset.
