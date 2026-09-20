@@ -12,12 +12,14 @@ import {
   FileText,
   FolderPlus,
   House,
+  Menu,
   Pencil,
   Search,
   Save,
   Trash2,
   Undo2,
   Workflow,
+  X,
 } from "@lucide/svelte";
 import CodeMirrorEditor from "../components/CodeMirrorEditor.svelte";
 import ConfirmDialog from "../components/ConfirmDialog.svelte";
@@ -117,6 +119,7 @@ let isIpToolkit = $derived(page === "ip-toolkit");
 let isLauncher = $derived(page === "launcher");
 let isNotFound = $derived(page === "not-found");
 let launcherOpen = $state(false);
+let sidebarOpen = $state(false);
 let toolLauncher = $state<ToolLauncher>();
 const diagramSaveVersions = new Map<string, number>();
 let DiagramEditor = $state<Component<{ diagram: import("../domain/workspace").DiagramDocument; onChange: (diagram: import("../domain/workspace").DiagramDocument) => void }> | null>(null);
@@ -203,6 +206,7 @@ const commands: Array<{ name: string; action: () => void }> = [
   },
   { name: "画像を挿入", action: () => imageInput?.click() },
   { name: "文書を Markdown として追加", action: () => navigateToDocumentImport() },
+  { name: "ZIP バックアップを作成", action: () => void backup() },
   { name: "ZIP を復元", action: () => importInput?.click() },
   { name: "開いている Markdown をダウンロード", action: downloadMarkdown },
   { name: "別の Markdown 文書と比較", action: openDiff },
@@ -252,6 +256,10 @@ onMount(() => {
       }
       if (launcherOpen) {
         closeLauncher();
+        return;
+      }
+      if (sidebarOpen) {
+        sidebarOpen = false;
         return;
       }
       paletteOpen = false;
@@ -319,6 +327,7 @@ function selectEntry(entry: WorkspaceEntry): void {
     return;
   }
   activeEntryId = entry.id;
+  sidebarOpen = false;
   if (workspace) {
     workspace.lastOpenedEntryId = entry.id;
     scheduleSave();
@@ -976,10 +985,14 @@ function closeLauncher(): void {
     <div class="document-chip">{isDocumentImport ? "文書を Markdown に変換" : documentTitle}</div>
     <div class="top-actions">
       {#if isDocumentImport}
-        <button class="button-with-icon" onclick={openLauncher}><Search aria-hidden="true" />ツールを検索 <kbd>⌘ K</kbd></button>
-        <a class="top-link" href="/">ホームへ戻る</a>
+        <button class="mobile-only mobile-icon-button" aria-label="ツールを検索" onclick={openLauncher}><Search aria-hidden="true" /></button>
+        <button class="desktop-only button-with-icon" onclick={openLauncher}><Search aria-hidden="true" />ツールを検索 <kbd>⌘ K</kbd></button>
+        <a class="desktop-only top-link" href="/">ホームへ戻る</a>
       {:else}
-        <a class="top-link button-with-icon" href="/"><House aria-hidden="true" />ホーム</a><button class="button-with-icon" onclick={openLauncher}><Search aria-hidden="true" />ツールを検索 <kbd>⌘ K</kbd></button><button class="button-with-icon" onclick={createWorkspace} disabled={!repository}><FilePlus aria-hidden="true" />新規 WS <kbd>⌘ ⌥ N</kbd></button><button class="button-with-icon" onclick={navigateToDocumentImport}><FileInput aria-hidden="true" />文書を変換</button><button class="button-with-icon" onclick={() => paletteOpen = true} disabled={!workspace}><Command aria-hidden="true" />コマンド <kbd>⌘ ⇧ K</kbd></button><button class="button-with-icon" onclick={backup} disabled={!workspace}><Download aria-hidden="true" />ZIP バックアップ</button><button class="save-button button-with-icon" onclick={saveNow} disabled={!workspace}><Save aria-hidden="true" />保存 <kbd>⌘ S</kbd></button>
+        <button class="mobile-only mobile-icon-button" aria-label="文書一覧を開く" aria-controls="workspace-sidebar" aria-expanded={sidebarOpen} onclick={() => sidebarOpen = true}><Menu aria-hidden="true" /></button>
+        <button class="mobile-only mobile-icon-button" aria-label="ツールを検索" onclick={openLauncher}><Search aria-hidden="true" /></button>
+        <button class="mobile-only mobile-icon-button" aria-label="コマンドを開く" onclick={() => paletteOpen = true} disabled={!workspace}><Command aria-hidden="true" /></button>
+        <a class="desktop-only top-link button-with-icon" href="/"><House aria-hidden="true" />ホーム</a><button class="desktop-only button-with-icon" onclick={openLauncher}><Search aria-hidden="true" />ツールを検索 <kbd>⌘ K</kbd></button><button class="desktop-only button-with-icon" onclick={createWorkspace} disabled={!repository}><FilePlus aria-hidden="true" />新規 WS <kbd>⌘ ⌥ N</kbd></button><button class="desktop-only button-with-icon" onclick={navigateToDocumentImport}><FileInput aria-hidden="true" />文書を変換</button><button class="desktop-only button-with-icon" onclick={() => paletteOpen = true} disabled={!workspace}><Command aria-hidden="true" />コマンド <kbd>⌘ ⇧ K</kbd></button><button class="desktop-only button-with-icon" onclick={backup} disabled={!workspace}><Download aria-hidden="true" />ZIP バックアップ</button><button class="save-button button-with-icon" aria-label="保存" onclick={saveNow} disabled={!workspace}><Save aria-hidden="true" /><span>保存</span><kbd>⌘ S</kbd></button>
       {/if}
     </div>
   </header>
@@ -994,7 +1007,9 @@ function closeLauncher(): void {
     />
   {:else}
   <section class="workspace">
-    <aside class="sidebar" aria-label="Explorer">
+    {#if sidebarOpen}<button class="mobile-only sidebar-scrim" aria-label="文書一覧を閉じる" onclick={() => sidebarOpen = false}></button>{/if}
+    <aside id="workspace-sidebar" class:mobile-open={sidebarOpen} class="sidebar" aria-label="Explorer">
+      <div class="mobile-only mobile-sidebar-heading"><strong>文書一覧</strong><button aria-label="文書一覧を閉じる" onclick={() => sidebarOpen = false}><X aria-hidden="true" /></button></div>
       <div class="sidebar-title"><span>{workspace?.name ?? ""}</span><span><button aria-label="新しい文書" onclick={() => create("markdown")} disabled={!workspace}><FilePlus aria-hidden="true" /></button><button aria-label="新しいフォルダ" onclick={() => create("folder")} disabled={!workspace}><FolderPlus aria-hidden="true" /></button></span></div>
       {#if workspace}
         <div
