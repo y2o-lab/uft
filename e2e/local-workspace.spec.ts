@@ -60,6 +60,17 @@ test("uses Lucide icons for workspace actions", async ({
     page.getByRole("button", { name: "ZIP バックアップ" }).locator("svg.lucide-download"),
   ).toBeVisible();
 
+  await page.keyboard.press("Meta+Shift+K");
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  await expect(palette.getByRole("heading", { name: "作成" })).toBeVisible();
+  await expect(palette.getByRole("heading", { name: "挿入" })).toBeVisible();
+  await expect(palette.getByRole("heading", { name: "ファイル" })).toBeVisible();
+  await expect(palette.getByRole("heading", { name: "表示" })).toBeVisible();
+  await expect(palette.locator(".palette-command-icon svg")).toHaveCount(15);
+
+  await palette.getByRole("textbox", { name: "コマンドを検索" }).fill("新しい図表");
+  await expect(palette.getByRole("button", { name: "新規図表" })).toBeVisible();
+  await expect(palette.locator(".palette-section button")).toHaveCount(1);
 });
 
 test("uses the site modal instead of a browser prompt for Markdown names", async ({ page }) => {
@@ -118,7 +129,7 @@ test("downloads the open Markdown document", async ({ page }) => {
 
   await page.keyboard.press("Meta+Shift+K");
   const markdownDownloadCommand = page.getByRole("button", {
-    name: "開いている Markdown をダウンロード",
+    name: "Markdown をダウンロード",
   });
   await expect(markdownDownloadCommand).toBeVisible();
   const download = page.waitForEvent("download");
@@ -153,18 +164,19 @@ test("the command palette scrolls within the modal when its contents are tall", 
 
   await page.keyboard.press("Meta+Shift+K");
   const palette = page.getByRole("dialog", { name: "Command palette" });
+  const results = palette.locator(".palette-results");
   await expect(palette).toBeVisible();
   await expect
     .poll(() =>
-      palette.evaluate((element) => element.scrollHeight > element.clientHeight),
+      results.evaluate((element) => element.scrollHeight > element.clientHeight),
     )
     .toBe(true);
 
-  await palette.hover();
+  await results.hover();
   await page.mouse.wheel(0, 1_000);
-  await expect.poll(() => palette.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await expect.poll(() => results.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
   await expect(
-    palette.getByRole("button", { name: "プレビューを印刷 / PDF 保存" }),
+    palette.getByRole("button", { name: "印刷 / PDF 保存" }),
   ).toBeVisible();
 });
 
@@ -350,7 +362,7 @@ test("a newly created workspace can be switched away from and remains selected",
   await expect(editor).toContainText("# Newer workspace");
 
   await page.getByRole("button", { name: /コマンド/ }).click();
-  await page.getByRole("button", { name: "ワークスペースを切り替える" }).click();
+  await page.getByRole("button", { name: "ワークスペースを開く" }).click();
   const workspaceIdSelect = page.getByRole("combobox", {
     name: "ワークスペース ID",
   });
@@ -385,7 +397,7 @@ test("command templates remain separate Markdown blocks", async ({ page }) => {
   await page.keyboard.insertText("# Overview\n\nA local-first design document.");
 
   await page.getByRole("button", { name: /コマンド/ }).click();
-  await page.getByRole("button", { name: "表テンプレートを挿入" }).click();
+  await page.getByRole("button", { name: "表を挿入" }).click();
 
   await expect(page.locator(".preview-content h1")).toHaveText("Overview");
   await expect(page.locator(".preview-content table")).toBeVisible();

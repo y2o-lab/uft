@@ -1,21 +1,32 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import {
+  Archive,
+  ArchiveRestore,
   Download,
   ArrowRight,
   ChevronDown,
   ChevronRight,
   Command,
+  FileDown,
   FileInput,
   FileOutput,
   FilePlus,
   FileText,
+  Files,
+  FolderOpen,
   FolderPlus,
   House,
+  ImagePlus,
   Menu,
+  MessageSquareQuote,
+  PanelsTopLeft,
   Pencil,
+  Printer,
   Search,
   Save,
+  SquareCode,
+  Table2,
   Trash2,
   Undo2,
   Workflow,
@@ -181,37 +192,145 @@ const workspaceSession = createWorkspaceSession({
   notify,
   saveNow,
 });
-const commands: Array<{ name: string; action: () => void }> = [
-  { name: "新しいワークスペース", action: () => createWorkspace() },
-  { name: "新しい Markdown 文書", action: () => create("markdown") },
-  { name: "新しいフォルダ", action: () => create("folder") },
-  { name: "新しい図表", action: () => create("diagram") },
-  { name: "ワークスペースを切り替える", action: () => void switchWorkspace() },
+const commandSections = ["作成", "挿入", "ファイル", "表示"] as const;
+const commands = [
   {
-    name: "表テンプレートを挿入",
+    section: "作成",
+    name: "新規ワークスペース",
+    description: "空の作業スペースを作成",
+    keywords: ["新しいワークスペース"],
+    icon: PanelsTopLeft,
+    action: () => createWorkspace(),
+  },
+  {
+    section: "作成",
+    name: "新規 Markdown",
+    description: "Markdown 文書を作成",
+    keywords: ["新しい Markdown 文書"],
+    icon: FilePlus,
+    action: () => create("markdown"),
+  },
+  {
+    section: "作成",
+    name: "新規フォルダ",
+    description: "文書を整理するフォルダを作成",
+    keywords: ["新しいフォルダ"],
+    icon: FolderPlus,
+    action: () => create("folder"),
+  },
+  {
+    section: "作成",
+    name: "新規図表",
+    description: "編集できる図表を作成",
+    keywords: ["新しい図表", "ダイアグラム"],
+    icon: Workflow,
+    action: () => create("diagram"),
+  },
+  {
+    section: "作成",
+    name: "ワークスペースを開く",
+    description: "保存済みワークスペースへ切り替え",
+    keywords: ["ワークスペースを切り替える"],
+    icon: FolderOpen,
+    action: () => void switchWorkspace(),
+  },
+  {
+    section: "挿入",
+    name: "表を挿入",
+    description: "Markdown の表テンプレート",
+    keywords: ["表テンプレートを挿入", "テーブル"],
+    icon: Table2,
     action: () =>
       insertIntoEditor(
         "\n\n| Field | Type | Description |\n| --- | --- | --- |\n| id | string | Identifier |\n\n",
       ),
   },
   {
-    name: "コードブロックを挿入",
+    section: "挿入",
+    name: "コードブロック",
+    description: "TypeScript のコード欄を挿入",
+    keywords: ["コードブロックを挿入"],
+    icon: SquareCode,
     action: () =>
       insertIntoEditor("\n\n```ts\n// Implementation context\n```\n\n"),
   },
   {
-    name: "Callout を挿入",
+    section: "挿入",
+    name: "コールアウト",
+    description: "NOTE 形式の注釈を挿入",
+    keywords: ["Callout を挿入", "注釈"],
+    icon: MessageSquareQuote,
     action: () =>
       insertIntoEditor("\n\n> [!NOTE]\n> Add a decision or constraint.\n\n"),
   },
-  { name: "画像を挿入", action: () => imageInput?.click() },
-  { name: "文書を Markdown として追加", action: () => navigateToDocumentImport() },
-  { name: "ZIP バックアップを作成", action: () => void backup() },
-  { name: "ZIP を復元", action: () => importInput?.click() },
-  { name: "開いている Markdown をダウンロード", action: downloadMarkdown },
-  { name: "別の Markdown 文書と比較", action: openDiff },
-  { name: "プレビューを印刷 / PDF 保存", action: printDocument },
+  {
+    section: "挿入",
+    name: "画像を挿入",
+    description: "画像ファイルを assets/ に追加",
+    keywords: ["イメージ"],
+    icon: ImagePlus,
+    action: () => imageInput?.click(),
+  },
+  {
+    section: "ファイル",
+    name: "文書をインポート",
+    description: "Word・PDF などを Markdown に変換",
+    keywords: ["文書を Markdown として追加", "変換"],
+    icon: FileInput,
+    action: () => navigateToDocumentImport(),
+  },
+  {
+    section: "ファイル",
+    name: "バックアップを作成",
+    description: "ワークスペースを ZIP で保存",
+    keywords: ["ZIP バックアップを作成", "エクスポート"],
+    icon: Archive,
+    action: () => void backup(),
+  },
+  {
+    section: "ファイル",
+    name: "バックアップから復元",
+    description: "ZIP を現在のワークスペースへ追加",
+    keywords: ["ZIP を復元", "インポート"],
+    icon: ArchiveRestore,
+    action: () => importInput?.click(),
+  },
+  {
+    section: "ファイル",
+    name: "Markdown をダウンロード",
+    description: "開いている文書を .md で保存",
+    keywords: ["開いている Markdown をダウンロード", "エクスポート"],
+    icon: FileDown,
+    action: downloadMarkdown,
+  },
+  {
+    section: "表示",
+    name: "文書を比較",
+    description: "別の Markdown との差分を表示",
+    keywords: ["別の Markdown 文書と比較", "Diff", "差分"],
+    icon: Files,
+    action: openDiff,
+  },
+  {
+    section: "表示",
+    name: "印刷 / PDF 保存",
+    description: "プレビューを印刷または PDF で保存",
+    keywords: ["プレビューを印刷 / PDF 保存"],
+    icon: Printer,
+    action: printDocument,
+  },
 ];
+let matchingCommands = $derived(
+  commands.filter((commandItem) => {
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    if (!normalizedQuery) return true;
+    return [
+      commandItem.name,
+      commandItem.description,
+      ...commandItem.keywords,
+    ].some((term) => term.toLocaleLowerCase().includes(normalizedQuery));
+  }),
+);
 
 onMount(() => {
   const boot = isLauncher || isIpToolkit || isNotFound
@@ -1072,7 +1191,7 @@ function closeLauncher(): void {
 
 <input bind:this={imageInput} hidden type="file" accept="image/png,image/jpeg,image/gif,image/webp" onchange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void addImage(file); event.currentTarget.value = ""; }} />
 <input bind:this={importInput} hidden type="file" accept="application/zip,.zip" onchange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void restore(file); }} />
-{#if paletteOpen}<div class="palette-scrim"><button type="button" class="modal-backdrop" aria-label="コマンドパレットを閉じる" onclick={() => paletteOpen = false}></button><dialog open class="palette" aria-label="Command palette"><input bind:value={query} placeholder="コマンドを検索…" />{#each commands as commandItem}{#if !query || commandItem.name.includes(query)}<button onclick={() => command(commandItem.action)}>{commandItem.name}</button>{/if}{/each}</dialog></div>{/if}
+{#if paletteOpen}<div class="palette-scrim"><button type="button" class="modal-backdrop" aria-label="コマンドパレットを閉じる" onclick={() => paletteOpen = false}></button><dialog open class="palette" aria-label="Command palette"><label class="palette-search"><Search aria-hidden="true" /><span class="visually-hidden">コマンドを検索</span><input bind:value={query} placeholder="コマンドを検索…" /></label><div class="palette-results">{#each commandSections as section}{#if matchingCommands.some((commandItem) => commandItem.section === section)}<section class="palette-section"><h2>{section}</h2>{#each matchingCommands.filter((commandItem) => commandItem.section === section) as commandItem}<button aria-label={commandItem.name} onclick={() => command(commandItem.action)}><span class="palette-command-icon"><commandItem.icon aria-hidden="true" /></span><span class="palette-command-copy"><strong>{commandItem.name}</strong><small>{commandItem.description}</small></span></button>{/each}</section>{/if}{/each}{#if matchingCommands.length === 0}<p class="palette-empty">一致するコマンドはありません。</p>{/if}</div></dialog></div>{/if}
 <ConfirmDialog open={Boolean(deleteTarget)} title="項目を削除しますか？" detail={deleteTarget ? `「${deleteTarget.path}」とその子項目をこのセッションから削除します。` : ""} onCancel={() => deleteTarget = null} onConfirm={remove} />
 <TextInputDialog open={Boolean(textInputRequest)} title={textInputRequest?.title} detail={textInputRequest?.detail} label={textInputRequest?.label} value={textInputRequest?.value} options={textInputRequest?.options} placeholder={textInputRequest?.placeholder} submitLabel={textInputRequest?.submitLabel} onCancel={() => textInputRequest = null} onSubmit={(value) => { const request = textInputRequest; textInputRequest = null; request?.onSubmit(value); }} />
 {#if undoDeleteAvailable}<button class="undo-toast button-with-icon" onclick={undoDelete}><Undo2 aria-hidden="true" />削除しました。取り消す</button>{/if}<Toast message={toast} />
