@@ -39,7 +39,20 @@ export type DiagramNode = {
   id: string;
   type?: string;
   position: { x: number; y: number };
-  data: { label: string; [key: string]: unknown };
+  data: {
+    label: string;
+    kind?:
+      | "process"
+      | "decision"
+      | "terminator"
+      | "database"
+      | "component"
+      | "queue"
+      | "note"
+      | "aws-service";
+    awsService?: string;
+    [key: string]: unknown;
+  };
 };
 
 export type DiagramEdge = {
@@ -48,6 +61,13 @@ export type DiagramEdge = {
   target: string;
   label?: string;
   type?: string;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
+  data?: {
+    direction?: "forward" | "both" | "none";
+    lineStyle?: "solid" | "dashed";
+    [key: string]: unknown;
+  };
 };
 
 export type DiagramGraph = {
