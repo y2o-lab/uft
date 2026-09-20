@@ -1,7 +1,12 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("mobile layout", () => {
-  test.use({ viewport: { width: 390, height: 844 } });
+  test.use({
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 3,
+    hasTouch: true,
+    isMobile: true,
+  });
 
   test("launcher uses one readable column without horizontal overflow", async ({
     page,
@@ -97,6 +102,83 @@ test.describe("mobile layout", () => {
         () => document.documentElement.scrollWidth === window.innerWidth,
       ),
     ).toBe(true);
+  });
+
+  test("preview editing and formatting persist after touch interaction", async ({
+    page,
+  }) => {
+    await page.goto("/workspace");
+
+    const editor = page.locator(".cm-content");
+    await expect(editor).toBeVisible();
+    await editor.click();
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.insertText(
+      "# Mobile preview\n\nEdit and format this text.",
+    );
+
+    await page.getByRole("button", { name: "Preview", exact: true }).tap();
+
+    const editButton = page.getByRole("button", { name: "プレビューを編集" });
+    const boldButton = page
+      .locator(".preview-editor-bar")
+      .getByRole("button", { name: "太字" });
+    await expect(editButton).toBeVisible();
+    await expect(boldButton).toBeVisible();
+
+    const controlSizes = await Promise.all([
+      editButton.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        return { height: box.height, right: box.right };
+      }),
+      boldButton.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        return { height: box.height, right: box.right };
+      }),
+    ]);
+    expect(controlSizes[0].height).toBeGreaterThanOrEqual(40);
+    expect(controlSizes[1].height).toBeGreaterThanOrEqual(38);
+    expect(controlSizes.every(({ right }) => right <= 390)).toBe(true);
+
+    await editButton.tap();
+    const preview = page.getByLabel("編集可能な Markdown プレビュー");
+    await expect(preview).toHaveAttribute("contenteditable", "true");
+
+    const paragraph = preview.locator("p").first();
+    await paragraph.evaluate((element) => {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    });
+    await page.keyboard.insertText("Edited on mobile.");
+    await expect(paragraph).toHaveText("Edited on mobile.");
+
+    await paragraph.evaluate((element) => {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    });
+    await boldButton.tap();
+
+    await expect(preview.locator("strong")).toHaveText("Edited on mobile.");
+    await page.getByRole("button", { name: "Split", exact: true }).tap();
+    await expect(editor).toContainText("**Edited on mobile.**");
+    await expect(page.getByText("保存済み")).toBeVisible({ timeout: 15_000 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth === window.innerWidth,
+      ),
+    ).toBe(true);
+
+    await page.reload();
+    await page.getByRole("button", { name: "Preview", exact: true }).tap();
+    await expect(page.locator(".preview-content strong")).toHaveText(
+      "Edited on mobile.",
+    );
   });
 
   test("converter and IP toolkit fit the viewport with touch-sized actions", async ({

@@ -403,6 +403,134 @@ test("command templates remain separate Markdown blocks", async ({ page }) => {
   await expect(page.locator(".preview-content table")).toBeVisible();
 });
 
+test("edits the preview and writes the result back to Markdown", async ({
+  page,
+}) => {
+  await page.goto("/workspace");
+  const editor = page.locator(".cm-content");
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText("# Preview editing\n\nOriginal paragraph.");
+
+  await page.getByRole("button", { name: "プレビューを編集" }).click();
+  const preview = page.getByLabel("編集可能な Markdown プレビュー");
+  await expect(preview).toHaveAttribute("contenteditable", "true");
+  const paragraph = preview.locator("p").first();
+  await paragraph.evaluate((element) => {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+  await page.keyboard.insertText("Changed in Preview.");
+
+  await expect(editor).toContainText("Changed in Preview.");
+  await expect(editor).not.toContainText("Original paragraph.");
+  await page.getByRole("button", { name: "編集を終了" }).click();
+  await expect(page.getByLabel("Markdown プレビュー")).toContainText(
+    "Changed in Preview.",
+  );
+  await expect(page.getByText("保存済み")).toBeVisible({ timeout: 15_000 });
+
+  await page.reload();
+  await expect(page.locator(".preview-content")).toContainText(
+    "Changed in Preview.",
+  );
+});
+
+test("formats selected source text and continues typing in the chosen style", async ({
+  page,
+}) => {
+  await page.goto("/workspace");
+  const editor = page.locator(".cm-content");
+  const sourceToolbar = page.locator(".markdown-source-editor").getByRole("toolbar", {
+    name: "Markdown 書式",
+  });
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText("Selected text");
+  await page.keyboard.press("Meta+A");
+  await sourceToolbar.getByRole("button", { name: "太字" }).click();
+
+  await expect(editor).toContainText("**Selected text**");
+  await expect(page.locator(".preview-content strong")).toHaveText("Selected text");
+
+  await editor.click();
+  await page.keyboard.press("Meta+End");
+  await page.keyboard.press("Enter");
+  await sourceToolbar.getByRole("button", { name: "インラインコード" }).click();
+  await page.keyboard.insertText("nextValue");
+
+  await expect(editor).toContainText("`nextValue`");
+  await expect(page.locator(".preview-content code")).toHaveText("nextValue");
+});
+
+test("formats a preview selection with the same editing toolbar", async ({
+  page,
+}) => {
+  await page.goto("/workspace");
+  const editor = page.locator(".cm-content");
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText("# Preview toolbar\n\nMake this bold.\n\nconst n = 1;");
+
+  await page.getByRole("button", { name: "プレビューを編集" }).click();
+  const preview = page.getByLabel("編集可能な Markdown プレビュー");
+  const paragraph = preview.locator("p").first();
+  await paragraph.evaluate((element) => {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+  await page
+    .locator(".preview-editor-bar")
+    .getByRole("button", { name: "太字" })
+    .click();
+
+  await expect(preview.locator("strong")).toHaveText("Make this bold.");
+  await expect(editor).toContainText("**Make this bold.**");
+
+  await preview.locator("h1").evaluate((element) => {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+  await page.locator(".preview-editor-bar").getByRole("button", { name: "見出し2" }).click();
+  await expect(preview.locator("h2")).toHaveText("Preview toolbar");
+
+  await preview.locator("p").nth(1).evaluate((element) => {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+  await page.locator(".preview-editor-bar").getByRole("button", { name: "コードブロック" }).click();
+  await expect(preview.locator("pre")).toContainText("const n = 1;");
+  await expect(editor).toContainText("```const n = 1;```");
+
+  await preview.locator("p").first().evaluate((element) => {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+  await page.locator(".preview-editor-bar").getByRole("button", { name: "インラインコード" }).click();
+  await page.keyboard.insertText("nextValue");
+  await expect(preview.locator("code").filter({ hasText: "nextValue" })).toBeVisible();
+  await expect(editor).toContainText("`nextValue`");
+});
+
 test("compares the current Markdown document with another local document", async ({
   page,
 }) => {

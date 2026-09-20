@@ -1177,7 +1177,7 @@ function closeLauncher(): void {
         {:else}
           <div class:source-only={mode === "source"} class:preview-only={mode === "preview"} class="document-area">
             {#if mode !== "preview"}<section class="source-pane">{#key activeMarkdown.entry.id}<CodeMirrorEditor value={activeMarkdown.document.content} onChange={editDocument} onReady={setEditorInsertionHandler} />{/key}<output class="markdown-character-count" data-testid="markdown-character-count" aria-live="polite">文字数: {markdownCharacterCount.toLocaleString()}（改行を含む）</output></section>{/if}
-            {#if mode !== "source"}<section class="preview-pane"><MarkdownPreview markdown={activeMarkdown.document.content} {assetUrls} documentPath={activeMarkdown.entry.path} /></section>{/if}
+            {#if mode !== "source"}<section class="preview-pane"><MarkdownPreview markdown={activeMarkdown.document.content} {assetUrls} documentPath={activeMarkdown.entry.path} canEdit={canWrite()} onChange={editDocument} /></section>{/if}
           </div>
         {/if}
       {:else if activeEntry?.kind === "diagram" && activeDiagram}
