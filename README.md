@@ -20,6 +20,8 @@ pnpm test
 pnpm build
 ```
 
+依存関係、GitHub Actions、Terraform provider の更新には Renovate を使用します。初回の GitHub 設定と運用方針は [Renovate の導入と運用](docs/renovate.md) を参照してください。
+
 Cloudflare Pages では build command に `bun run build`、output directory に `dist` を指定します。
 
 ## 保存と配信
@@ -40,7 +42,7 @@ AWS ノードは AWS 公式アーキテクチャアイコンを使用し、生�
 
 ## 文書を Markdown に変換
 
-最初に表示される `/` はツールランチャーです。Markdown の編集は `/workspace`、文書変換は `/convert-to-markdown`（またはワークスペースのコマンドパレットの「文書を Markdown として追加」）から直接開けます。ランチャーではツール名・機能で絞り込め、どの画面からでも <kbd>⌘/Ctrl + K</kbd> でページを離れずに Spotlight 風の検索ランチャーを開けます。<kbd>↑↓</kbd> と <kbd>Enter</kbd> で選択・起動、<kbd>Esc</kbd> で閉じられます。ワークスペースのコマンドパレットは <kbd>⌘/Ctrl + Shift + K</kbd> です。新しいローカルツールもこのランチャーへ追加できます。
+最初に表示される `/` はツールランチャーです。Markdown の編集は `/workspace`、文書変換は `/convert-to-markdown`（またはワークスペースのコマンドパレットの「文書をインポート」）から直接開けます。ランチャーではツール名・機能で絞り込め、どの画面からでも <kbd>⌘/Ctrl + K</kbd> でページを離れずに Spotlight 風の検索ランチャーを開けます。<kbd>↑↓</kbd> と <kbd>Enter</kbd> で選択・起動、<kbd>Esc</kbd> で閉じられます。ワークスペースのコマンドパレットは <kbd>⌘/Ctrl + Shift + K</kbd> です。新しいローカルツールもこのランチャーへ追加できます。
 
 ワークスペースは編集画面の「新規 WS」、コマンドパレット、または <kbd>⌘/Ctrl + Alt + N</kbd> から作成できます。
 

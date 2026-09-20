@@ -1,38 +1,57 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": ["config:best-practices"],
   "timezone": "Asia/Tokyo",
   "schedule": ["* 8-11 * * 6"],
-  "enabledManagers": ["npm"],
-  "baseBranches": ["main"],
-  "rangeStrategy": "pin",
-  "prCreation": "immediate",
+  "enabledManagers": ["npm", "github-actions", "terraform"],
+  "baseBranchPatterns": ["main"],
   "prConcurrentLimit": 3,
   "branchConcurrentLimit": 3,
   "packageRules": [
     {
-      "description": "Automerge stable non-major updates after all CI checks pass",
-      "matchUpdateTypes": ["minor", "patch"],
-      "matchCurrentVersion": "!/^0/",
-      "groupName": "non-major dependencies",
-      "groupSlug": "non-major-dependencies",
-      "automerge": true,
-      "automergeType": "pr",
-      "platformAutomerge": true,
-      "ignoreTests": false
+      "description": "Pin npm dependency ranges for this application",
+      "matchManagers": ["npm"],
+      "rangeStrategy": "pin"
     },
     {
-      "description": "Keep major updates separate for manual review",
+      "description": "Automerge stable npm non-major updates after all required checks pass",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchCurrentVersion": "!/^0/",
+      "groupName": "npm non-major dependencies",
+      "groupSlug": "npm-non-major-dependencies",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Require Dependency Dashboard approval for major updates",
       "matchUpdateTypes": ["major"],
-      "groupName": "major dependencies",
-      "groupSlug": "major-dependencies",
+      "dependencyDashboardApproval": true,
       "automerge": false
     },
     {
-      "description": "Keep pre-1.0 updates separate for manual review",
+      "description": "Require Dependency Dashboard approval for pre-1.0 dependencies",
       "matchCurrentVersion": "/^0/",
-      "groupName": "pre-1.0 dependencies",
-      "groupSlug": "pre-1-0-dependencies",
+      "dependencyDashboardApproval": true,
+      "automerge": false
+    },
+    {
+      "description": "Group GitHub Actions updates for manual review",
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions",
+      "automerge": false
+    },
+    {
+      "description": "Group Terraform updates for manual review",
+      "matchManagers": ["terraform"],
+      "groupName": "Terraform dependencies",
+      "automerge": false
+    },
+    {
+      "description": "Keep pnpm versions in package.json and GitHub Actions aligned",
+      "matchPackageNames": ["pnpm"],
+      "groupName": "pnpm toolchain",
       "automerge": false
     }
   ]
