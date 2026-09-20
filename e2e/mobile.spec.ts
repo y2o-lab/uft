@@ -67,12 +67,12 @@ test.describe("mobile layout", () => {
     });
     await expect(commandPalette).toBeVisible();
     await expect(
-      commandPalette.getByRole("button", { name: "新しい図表" }),
+      commandPalette.getByRole("button", { name: "新規図表" }),
     ).toBeVisible();
     await expect(
-      commandPalette.getByRole("button", { name: "ZIP バックアップを作成" }),
+      commandPalette.getByRole("button", { name: "バックアップを作成" }),
     ).toBeVisible();
-    await commandPalette.getByRole("button", { name: "新しい図表" }).click();
+    await commandPalette.getByRole("button", { name: "新規図表" }).click();
     const diagramDialogValue = page.locator("#text-input-dialog-value");
     await diagramDialogValue.fill("Mobile flow");
     await diagramDialogValue.press("Enter");
