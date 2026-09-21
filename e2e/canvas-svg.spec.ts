@@ -32,8 +32,9 @@ test("a canvas diagram saves its SVG and can be embedded in Markdown", async ({
     page.getByRole("button", { name: "選択を削除" }).locator("svg.lucide-trash-2"),
   ).toBeVisible();
   await expect(page.getByLabel("追加するノードの種類")).toContainText("AWS Lambda");
-  await expect(page.getByLabel("接続線の向き")).toContainText("双方向");
-  await expect(page.getByLabel("接続線の形")).toContainText("角丸直交");
+  await expect(page.getByLabel("要素を追加")).toBeVisible();
+  await expect(page.getByLabel("選択項目の設定")).toContainText("要素を選択");
+  await expect(page.getByText("⌘/Ctrl ＋ スクロールでズーム")).toBeVisible();
 
   await page.getByLabel("図表テンプレート").selectOption("aws-web");
   await page.getByRole("button", { name: "展開" }).click();
@@ -46,10 +47,65 @@ test("a canvas diagram saves its SVG and can be embedded in Markdown", async ({
     /^data:image\/svg\+xml/,
   );
 
+  const firstNode = page.locator(".svelte-flow__node").first();
+  const nodeBeforeDrag = await firstNode.boundingBox();
+  const viewportBeforeDrag = await page
+    .locator(".svelte-flow__viewport")
+    .getAttribute("style");
+  expect(nodeBeforeDrag).not.toBeNull();
+  await page.mouse.move(
+    (nodeBeforeDrag?.x ?? 0) + (nodeBeforeDrag?.width ?? 0) / 2,
+    (nodeBeforeDrag?.y ?? 0) + (nodeBeforeDrag?.height ?? 0) / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    (nodeBeforeDrag?.x ?? 0) + (nodeBeforeDrag?.width ?? 0) / 2 + 160,
+    (nodeBeforeDrag?.y ?? 0) + (nodeBeforeDrag?.height ?? 0) / 2 + 80,
+    { steps: 8 },
+  );
+  await page.mouse.up();
+  const nodeAfterDrag = await firstNode.boundingBox();
+  expect(nodeAfterDrag?.x).toBeGreaterThan((nodeBeforeDrag?.x ?? 0) + 10);
+  expect(nodeAfterDrag?.y).toBeGreaterThan((nodeBeforeDrag?.y ?? 0) + 5);
+  await expect(page.locator(".svelte-flow__viewport")).toHaveAttribute(
+    "style",
+    viewportBeforeDrag ?? "",
+  );
+
+  await firstNode.click();
+  const selectedNodeLabel = page.getByLabel("選択ノードの表示名");
+  await expect(selectedNodeLabel).toHaveValue("DNS");
+  await selectedNodeLabel.fill("Public DNS");
+  await selectedNodeLabel.press("Tab");
+  await expect(firstNode).toContainText("Public DNS");
+  await page.getByRole("button", { name: "元に戻す" }).click();
+  await expect(firstNode).toContainText("DNS");
+  await page.getByRole("button", { name: "やり直す" }).click();
+  await expect(firstNode).toContainText("Public DNS");
+
+  const canvas = page.locator(".flow-canvas");
+  await canvas.hover();
+  const zoomBeforeScroll = await canvas.evaluate((element) => {
+    const transform = element.querySelector<SVGGElement>(
+      ".svelte-flow__viewport",
+    )?.getAttribute("style");
+    return Number(transform?.match(/scale\(([^)]+)\)/)?.[1]);
+  });
+  await page.mouse.wheel(0, 180);
+  const zoomAfterScroll = await canvas.evaluate((element) => {
+    const transform = element.querySelector<SVGGElement>(
+      ".svelte-flow__viewport",
+    )?.getAttribute("style");
+    return Number(transform?.match(/scale\(([^)]+)\)/)?.[1]);
+  });
+  expect(zoomAfterScroll).toBe(zoomBeforeScroll);
+
   const canvasEdges = page.locator(".svelte-flow__edge");
   await expect(canvasEdges).toHaveCount(5);
   await canvasEdges.first().press("Enter");
   await expect(canvasEdges.first()).toHaveClass(/selected/);
+  await expect(page.getByLabel("接続線の向き")).toContainText("双方向");
+  await expect(page.getByLabel("接続線の形")).toContainText("角丸直交");
   await page.getByLabel("接続線の向き").selectOption("both");
   await page.getByLabel("接続線の線種").selectOption("dashed");
   await page.getByLabel("接続線のラベル").fill("request / response");
