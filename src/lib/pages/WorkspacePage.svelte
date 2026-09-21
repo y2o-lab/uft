@@ -895,14 +895,20 @@ async function saveDiagram(
     : undefined;
   const path = asset?.path ?? diagramAssetPath(entry);
   asset ??= targetWorkspace.assets.find((candidate) => candidate.path === path);
+  const checksum = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+  if (
+    workspace !== targetWorkspace ||
+    saveVersion !== diagramSaveVersions.get(saveKey)
+  )
+    return true;
   if (!asset) {
     asset = { id: newId("asset"), workspaceId: targetWorkspace.id, path, mediaType: "image/svg+xml", byteSize: bytes.byteLength, checksum: "", createdAt: new Date().toISOString() };
     targetWorkspace.assets.push(asset);
   }
   asset.byteSize = bytes.byteLength;
-  asset.checksum = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
+  asset.checksum = checksum;
   const result = graphToMermaid(diagram.graph);
   const updatedAt = new Date().toISOString();
   targetWorkspace.diagrams[entry.id] = {
