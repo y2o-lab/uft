@@ -1,12 +1,21 @@
 import type { EntryKind, Workspace, WorkspaceEntry } from "./workspace";
 
-const invalidName = /[\\/\0]|^\.{1,2}$/;
+const invalidName = /[\\/]|^\.{1,2}$/;
+export const hasControlCharacters = (value: string): boolean =>
+  Array.from(value).some(
+    (char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127,
+  );
 
 export class WorkspacePathError extends Error {}
 
 export function validateName(name: string): string {
   const trimmed = name.trim();
-  if (!trimmed || trimmed.length > 120 || invalidName.test(trimmed)) {
+  if (
+    !trimmed ||
+    trimmed.length > 255 ||
+    invalidName.test(trimmed) ||
+    hasControlCharacters(trimmed)
+  ) {
     throw new WorkspacePathError(
       "名前には /、\\、空文字、.、.. を使用できません。",
     );

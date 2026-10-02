@@ -32,6 +32,8 @@ import {
   Workflow,
   X,
 } from "@lucide/svelte";
+import WorkspaceAiIntegration from "../components/WorkspaceAiIntegration.svelte";
+import { createCommandQueue } from "../workspace/command-queue";
 import CodeMirrorEditor from "../components/CodeMirrorEditor.svelte";
 import ConfirmDialog from "../components/ConfirmDialog.svelte";
 import DocumentImportPanel from "../components/DocumentImportPanel.svelte";
@@ -96,6 +98,9 @@ function currentPage(): AppPage {
   if (window.location.pathname === "/") return "launcher";
   return "not-found";
 }
+const enqueueCommand = createCommandQueue();
+let aiBusy = $state(false);
+let aiTarget = $state<string | null>(null);
 let workspace = $state<Workspace | null>(null);
 let repository = $state<WorkspaceRepository | null>(null);
 let activeEntryId = $state<string | null>(null);
@@ -179,6 +184,8 @@ let matchingComparisonEntries = $derived(
 let visibleEntries = $derived(workspace ? flattenEntries(workspace) : []);
 let documentTitle = $derived(activeEntry?.path ?? "ワークスペース");
 const workspaceSession = createWorkspaceSession({
+  isBusy: () => aiBusy,
+  runExclusive: enqueueCommand,
   getWorkspace: () => workspace,
   setWorkspace: (next) => (workspace = next),
   getRepository: () => repository,
@@ -410,6 +417,7 @@ $effect(() => {
 });
 
 async function switchWorkspace(): Promise<void> {
+  if (aiBusy) return;
   if (!repository) return;
   const choices = await repository.listWorkspaces();
   textInputRequest = {
@@ -459,7 +467,7 @@ function selectRoot(): void {
 }
 
 function canWrite(): boolean {
-  return true;
+  return !aiBusy;
 }
 
 function createWorkspace(): void {
@@ -474,6 +482,7 @@ function createWorkspace(): void {
 }
 
 async function createWorkspaceWithName(name: string): Promise<void> {
+  if (aiBusy) return;
   if (!repository) return;
   const workspaceName = name.trim();
   if (!workspaceName) {
@@ -482,7 +491,7 @@ async function createWorkspaceWithName(name: string): Promise<void> {
   }
   // Preserve changes even when a new workspace is created within the
   // auto-save delay after editing the current one.
-  if (!(await saveNow())) return;
+  if (!(await saveNow()) || aiBusy) return;
   const now = new Date().toISOString();
   const workspaceId = newId("workspace");
   const folderId = newId("folder");
@@ -575,6 +584,7 @@ function create(kind: EntryKind): void {
 
 function createWithName(kind: EntryKind, parentId: string | null, name: string): void {
   if (!workspace) return;
+  if (!canWrite()) { notify(new Error("AI 連携の保存中です。完了後に再試行してください。")); return; }
   try {
     const entry = createEntry(
       workspace,
@@ -636,6 +646,7 @@ function rename(): void {
 
 function renameWithName(entryId: string, name: string): void {
   if (!workspace) return;
+  if (!canWrite()) { notify(new Error("AI 連携の保存中です。完了後に再試行してください。")); return; }
   try {
     renameEntry(workspace, entryId, name);
     scheduleSave();
@@ -708,7 +719,7 @@ function editDocument(content: string): void {
     !workspace ||
     !activeEntry ||
     activeEntry.kind !== "markdown" ||
-    !canWrite()
+    (aiBusy && aiTarget === activeEntry.id)
   )
     return;
   updateDocument(workspace, activeEntry.id, content);
@@ -768,7 +779,10 @@ function scheduleSave(): void {
   status = "保存待ち";
   saveTimer = setTimeout(() => void saveNow(), 500);
 }
-async function saveNow(): Promise<boolean> {
+function saveNow(): Promise<boolean> {
+  return enqueueCommand(saveQueued);
+}
+async function saveQueued(): Promise<boolean> {
   if (!workspace || !repository) return false;
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = undefined;
@@ -776,17 +790,7 @@ async function saveNow(): Promise<boolean> {
     status = "保存中…";
     const localSnapshot = cloneWorkspace(workspace);
     localSnapshot.updatedAt = new Date().toISOString();
-    const save = async (): Promise<Workspace> => {
-      const stored = await repository?.open(localSnapshot.id);
-      const merged = stored
-        ? mergeWorkspaces(stored, localSnapshot)
-        : localSnapshot;
-      await repository?.save(merged);
-      return merged;
-    };
-    const saved = "locks" in navigator
-      ? await navigator.locks.request("uft-workspace-save", save)
-      : await save();
+    const saved = await repository.mergeSave(localSnapshot);
     // Do not discard text entered while the asynchronous write was running.
     // A save that began before a workspace change must not replace the newly
     // opened workspace in the UI when its write finishes.
@@ -1173,6 +1177,17 @@ function closeLauncher(): void {
           ><span class="tree-icon" aria-hidden="true">{#if entry.kind === "folder"}{#if expanded.has(entry.id)}<ChevronDown />{:else}<ChevronRight />{/if}{:else if entry.kind === "diagram"}<Workflow />{:else}<FileText />{/if}</span><span>{entry.name}</span></button>
         {/each}
       {:else}<p class="loading-tree">読み込み中…</p>{/if}
+      <WorkspaceAiIntegration workspaceId={workspace?.id} context={{
+        getWorkspace: () => workspace, getRepository: () => repository,
+        getSelection: () => activeEntryId, enqueue: enqueueCommand,
+        guard: (entryId, busy) => { aiTarget = entryId; aiBusy = busy; if (!busy) void workspaceSession.refreshFromStorage(); },
+        applySaved: (saved, selected) => {
+          if (workspace?.id !== saved.id) return;
+          workspace = mergeWorkspaces(saved, workspace);
+          if (selected) { activeEntryId = selected; const parents = saved.entries.filter(entry => entry.kind === "folder").map(entry => entry.id); expanded = new Set([...expanded, ...parents]); }
+          workspaceSession.announceSave(saved.id); status = selected ? `AI 連携: ${saved.entries.find(entry => entry.id === selected)?.name ?? "文書"} を保存しました` : "AI 連携: 本文を保存しました"; statusTone = "info";
+        },
+      }} />
       <div class="sidebar-actions"><button aria-label="名前変更" title="名前変更" onclick={rename} disabled={!activeEntry}><Pencil aria-hidden="true" /></button><button aria-label="削除" title="削除" onclick={() => deleteTarget = activeEntry} disabled={!activeEntry}><Trash2 aria-hidden="true" /></button></div>
     </aside>
     <section class="main-pane">
@@ -1189,8 +1204,8 @@ function closeLauncher(): void {
           </section>
         {:else}
           <div class:source-only={mode === "source"} class:preview-only={mode === "preview"} class="document-area">
-            {#if mode !== "preview"}<section class="source-pane">{#key activeMarkdown.entry.id}<CodeMirrorEditor value={activeMarkdown.document.content} onChange={editDocument} onReady={setEditorInsertionHandler} />{/key}<output class="markdown-character-count" data-testid="markdown-character-count" aria-live="polite">文字数: {markdownCharacterCount.toLocaleString()}（改行を含む）</output></section>{/if}
-            {#if mode !== "source"}<section class="preview-pane"><MarkdownPreview markdown={activeMarkdown.document.content} {assetUrls} documentPath={activeMarkdown.entry.path} canEdit={canWrite()} onChange={editDocument} /></section>{/if}
+            {#if mode !== "preview"}<section class="source-pane">{#key activeMarkdown.entry.id}<CodeMirrorEditor readOnly={aiBusy && aiTarget === activeMarkdown.entry.id} value={activeMarkdown.document.content} onChange={editDocument} onReady={setEditorInsertionHandler} />{/key}<output class="markdown-character-count" data-testid="markdown-character-count" aria-live="polite">文字数: {markdownCharacterCount.toLocaleString()}（改行を含む）</output></section>{/if}
+            {#if mode !== "source"}<section class="preview-pane"><MarkdownPreview markdown={activeMarkdown.document.content} {assetUrls} documentPath={activeMarkdown.entry.path} canEdit={!(aiBusy && aiTarget === activeMarkdown.entry.id)} onChange={editDocument} /></section>{/if}
           </div>
         {/if}
       {:else if activeEntry?.kind === "diagram" && activeDiagram}

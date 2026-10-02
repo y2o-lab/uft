@@ -21,9 +21,10 @@
   let ready = $state(false);
   let activeFormats = $state(new Set<MarkdownFormat>());
   let applyingExternalValue = false;
+  let isolateExternalChange: (() => import("@codemirror/state").Annotation<string>) | undefined;
 
   function insert(text: string): void {
-    if (!view) return;
+    if (!view || readOnly) return;
     const selection = view.state.selection.main;
     view.dispatch({ changes: { from: selection.from, to: selection.to, insert: text }, selection: { anchor: selection.from + text.length } });
     view.focus();
@@ -59,6 +60,7 @@
     applyingExternalValue = true;
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: value },
+      annotations: isolateExternalChange?.(),
     });
     applyingExternalValue = false;
     refreshActiveFormats();
@@ -74,9 +76,10 @@
   });
 
   async function setup(): Promise<void> {
-    const [{ EditorState, Compartment }, { EditorView, keymap, lineNumbers }, { defaultKeymap, history, historyKeymap, indentWithTab, selectAll }, { markdown }] = await Promise.all([
+    const [{ EditorState, Compartment }, { EditorView, keymap, lineNumbers }, { defaultKeymap, history, historyKeymap, indentWithTab, selectAll, isolateHistory }, { markdown }] = await Promise.all([
       import("@codemirror/state"), import("@codemirror/view"), import("@codemirror/commands"), import("@codemirror/lang-markdown"),
     ]);
+    isolateExternalChange = () => isolateHistory.of("full");
     editable = new Compartment();
     view = new EditorView({ parent: host, state: EditorState.create({ doc: value, extensions: [lineNumbers({ domEventHandlers: {
       mousedown(editor, block, event) {

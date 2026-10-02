@@ -4,6 +4,8 @@ Markdown、画像、図表をブラウザ内だけで作成・編集し、Markdo
 
 設計判断の詳細は [技術スタック決定](docs/_plans/technology-stack.md) と [ADR 0001](docs/adr/0001-local-first-editor-stack.md) を参照してください。
 
+WebMCP の公開状況と API は [WebMCP 調査資料](docs/webmcp.md)、Markdown エディタへの導入仕様は [WebMCP 導入計画](docs/_plans/webmcp-markdown-editor.md) を参照してください。5 ツールを実装済みです。利用方法と実機検証は [検証記録](docs/verification/webmcp.md) を参照してください。公開 origin の Origin Trial 検証は未実施です。発行済みトークンはビルド時の `WEBMCP_ORIGIN_TRIAL_TOKENS` で指定でき、公開検証用の手順も検証記録に記載しています。
+
 ## Run locally
 
 ```bash
@@ -18,6 +20,7 @@ pnpm check
 pnpm lint
 pnpm test
 pnpm build
+pnpm test:e2e
 ```
 
 依存関係、GitHub Actions、Terraform provider の更新には Renovate を使用します。初回の GitHub 設定と運用方針は [Renovate の導入と運用](docs/renovate.md) を参照してください。
@@ -26,7 +29,7 @@ Cloudflare Pages では build command に `bun run build`、output directory に
 
 ## 保存と配信
 
-UFT は OPFS 上の SQLite を使い、対応しない環境では IndexedDB の互換保存モードへ切り替えます。ユーザーのコンテンツをサーバーへ送信しません。ブラウザのサイトデータを削除するとローカルデータも失われるため、**ZIP バックアップ**を定期的にダウンロードしてください。
+UFT の現在の保存先は IndexedDB です。旧バージョンの OPFS SQLite は既存データの取り込みにのみ使います。UFT 自体はユーザーのコンテンツをサーバーへ送信しません。AI 連携を有効にすると、読み取った文書を対応エージェントが AI サービスで処理する場合があります。ブラウザのサイトデータを削除するとローカルデータも失われるため、**ZIP バックアップ**を定期的にダウンロードしてください。
 
 保存形式を更新する際は、旧形式を読む前方マイグレーションを追加します。移行前にはこのブラウザ内に完全な世代バックアップを残しますが、配信のロールバックは保存形式の復旧手段にはしません。データ形式変更後の不具合は、原則として修正版をロールフォワードで配信します。
 
