@@ -426,6 +426,50 @@ test("command templates remain separate Markdown blocks", async ({ page }) => {
   await expect(page.locator(".preview-content table")).toBeVisible();
 });
 
+test("toggles preview tasks and persists them in Markdown", async ({ page }) => {
+  await page.goto("/workspace");
+  const editor = page.locator(".cm-content");
+  await expect(editor).toBeVisible();
+  const source = "# Tasks\n\n```md\n- [ ] example\n```\n\n+ [ ] **Parent**\n  * [x] child\n\n> 1. [ ] quoted\n\n- [ ] loose\n\n  Another paragraph.\n\n- [x] done\n";
+  await editor.click();
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.insertText(source);
+  const tasks = page.locator('.preview-content input[type="checkbox"]');
+  await expect(tasks).toHaveCount(5);
+  await expect(tasks.nth(0)).toBeEnabled();
+  await tasks.nth(0).check();
+  await expect(tasks.nth(0)).toBeChecked();
+  await expect.poll(async () => (await editor.locator(".cm-line").allTextContents()).join("\n")).toBe(source.replace("+ [ ]", "+ [x]"));
+  await tasks.nth(1).uncheck();
+  await expect(tasks.nth(1)).not.toBeChecked();
+  await expect(editor).toContainText("* [ ] child");
+  await tasks.nth(2).focus();
+  await page.keyboard.press("Space");
+  await expect(tasks.nth(2)).toBeChecked();
+  await expect(editor).toContainText("> 1. [x] quoted");
+
+  await page.getByRole("button", { name: "プレビューを編集" }).click();
+  await tasks.nth(0).uncheck();
+  await expect(tasks.nth(0)).not.toBeChecked();
+  await expect(editor).toContainText("[ ] **Parent**");
+  await tasks.nth(1).check();
+  await expect(editor).toContainText("[x] child");
+  await tasks.nth(3).check();
+  await expect(editor).toContainText("[x] loose");
+  await expect(editor).toContainText("Another paragraph.");
+  await tasks.nth(4).uncheck();
+  await expect(editor).toContainText("[ ] done");
+  await page.getByRole("button", { name: "編集を終了" }).click();
+  await expect(page.getByText("保存済み")).toBeVisible({ timeout: 15_000 });
+  await page.reload();
+  await expect(tasks).toHaveCount(5);
+  await expect(tasks.nth(0)).not.toBeChecked();
+  await expect(tasks.nth(1)).toBeChecked();
+  await expect(tasks.nth(2)).toBeChecked();
+  await expect(tasks.nth(3)).toBeChecked();
+  await expect(tasks.nth(4)).not.toBeChecked();
+});
+
 test("edits the preview and writes the result back to Markdown", async ({
   page,
 }) => {

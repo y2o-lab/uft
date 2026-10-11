@@ -38,6 +38,15 @@ function createService(): TurndownService {
     strongDelimiter: "**",
   });
   service.use(gfm);
+  service.addRule("uft-task-checkbox", {
+    filter: (node) =>
+      node.matches('input[type="checkbox"]') &&
+      (node.parentElement?.tagName === "LI" ||
+        (node.parentElement?.tagName === "P" &&
+          node.parentElement.parentElement?.tagName === "LI")),
+    replacement: (_content, node) =>
+      (node as HTMLInputElement).checked ? "[x] " : "[ ] ",
+  });
   service.addRule("uft-preview-only", {
     filter: (node) => node.matches("[data-preview-only]"),
     replacement: () => "",
