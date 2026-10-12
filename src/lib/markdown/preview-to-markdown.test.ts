@@ -1,9 +1,29 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it } from "vitest";
+import { renderMarkdown } from "./preview";
 import { previewToMarkdown } from "./preview-to-markdown";
 
 describe("editable Markdown preview", () => {
+  it("preserves toggled tasks in both tight and loose lists", async () => {
+    const preview = document.createElement("article");
+    preview.innerHTML = await renderMarkdown(
+      "- [ ] tight\n  - [x] nested\n\n* [ ] loose\n\n  Another paragraph.\n\n* [x] done\n",
+    );
+    const checkboxes = preview.querySelectorAll<HTMLInputElement>(
+      'input[type="checkbox"]',
+    );
+    checkboxes[0].checked = true;
+    checkboxes[1].checked = false;
+    checkboxes[2].checked = true;
+    checkboxes[3].checked = false;
+    const markdown = previewToMarkdown(preview);
+    expect(markdown).toMatch(/\[x\]\s+tight/);
+    expect(markdown).toMatch(/\[ \]\s+nested/);
+    expect(markdown).toMatch(/\[x\]\s+loose/);
+    expect(markdown).toMatch(/\[ \]\s+done/);
+    expect(markdown).toContain("Another paragraph.");
+  });
   it("turns edited preview blocks back into GFM", () => {
     const preview = document.createElement("article");
     preview.innerHTML = `
