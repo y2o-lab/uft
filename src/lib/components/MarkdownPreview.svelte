@@ -4,12 +4,18 @@
   import { renderMermaid } from "../markdown/mermaid";
   import { previewToMarkdown } from "../markdown/preview-to-markdown";
   import { renderMarkdown } from "../markdown/preview";
+  import { setTaskChecked } from "../markdown/task-list";
   import type { MarkdownFormat } from "../markdown/formatting";
   let { markdown = "", assetUrls = {}, documentPath = "docs/overview.md", canEdit = false, onChange = () => undefined }: { markdown?: string; assetUrls?: Record<string, string>; documentPath?: string; canEdit?: boolean; onChange?: (markdown: string) => void } = $props();
   let html = $state(""); let host: HTMLElement; let renderVersion = 0; let editing = $state(false); let lastEmittedMarkdown: string | null = null; let activeFormats = $state(new Set<MarkdownFormat>()); let savedRange: Range | null = null;
   let pointerStart: { x: number; y: number } | null = null;
   $effect(() => { if (editing && markdown === lastEmittedMarkdown) return; void updateHtml(markdown, assetUrls, documentPath); });
   $effect(() => { if (!canEdit && editing) editing = false; });
+  $effect(() => {
+    const disabled = !canEdit;
+    if (!html || !host) return;
+    for (const checkbox of host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) checkbox.disabled = disabled;
+  });
   onMount(() => {
     const onSelectionChange = () => { if (editing) refreshActiveFormats(); };
     document.addEventListener("selectionchange", onSelectionChange);
@@ -128,7 +134,16 @@
     handleInput();
     refreshActiveFormats();
   }
-  function handleInput(): void { if (!editing || !host) return; renderVersion += 1; refreshActiveFormats(); const nextMarkdown = previewToMarkdown(host); if (nextMarkdown === lastEmittedMarkdown) return; lastEmittedMarkdown = nextMarkdown; onChange(nextMarkdown); }
+  function handleInput(event?: Event): void { if (event?.target instanceof HTMLInputElement && event.target.type === "checkbox") return; if (!editing || !host) return; renderVersion += 1; refreshActiveFormats(); const nextMarkdown = previewToMarkdown(host); if (nextMarkdown === lastEmittedMarkdown) return; lastEmittedMarkdown = nextMarkdown; onChange(nextMarkdown); }
+  function handleTaskChange(event: Event): void {
+    const checkbox = event.target;
+    if (!canEdit || !(checkbox instanceof HTMLInputElement) || checkbox.type !== "checkbox") return;
+    checkbox.toggleAttribute("checked", checkbox.checked);
+    if (editing) { handleInput(); return; }
+    const index = [...host.querySelectorAll('input[type="checkbox"]')].indexOf(checkbox);
+    const nextMarkdown = setTaskChecked(markdown, index, checkbox.checked);
+    if (nextMarkdown !== markdown) onChange(nextMarkdown);
+  }
   function stopEditing(): void { editing = false; activeFormats = new Set(); savedRange = null; lastEmittedMarkdown = null; }
   function selectPreviewContents(event: KeyboardEvent): void {
     if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== "a") return;
@@ -149,6 +164,7 @@
     if (!start || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 4) return;
     const target = event.target;
     if (!(target instanceof Element)) return;
+    if (target.closest('input[type="checkbox"]')) return;
     const line = target.closest("h1, h2, h3, h4, h5, h6, p, li, blockquote, pre, td, th");
     if (!line || !host.contains(line)) return;
     window.setTimeout(() => {
@@ -170,5 +186,5 @@
     {#if editing}<span class="preview-editing-note">Markdown に自動反映</span>{/if}
     {#if canEdit}<button type="button" class="preview-edit-toggle" class:active={editing} aria-pressed={editing} onclick={() => editing ? stopEditing() : editing = true}>{editing ? "編集を終了" : "プレビューを編集"}</button>{/if}
   </div>
-  <div class:editing class="preview-content" bind:this={host} contenteditable={editing} role="textbox" aria-multiline="true" aria-readonly={!editing} tabindex="0" aria-label={editing ? "編集可能な Markdown プレビュー" : "Markdown プレビュー"} spellcheck={editing} oninput={handleInput} onkeydown={selectPreviewContents} onpointerdown={(event) => pointerStart = { x: event.clientX, y: event.clientY }} onclick={selectPreviewLine}>{@html html}</div>
+  <div class:editing class="preview-content" bind:this={host} contenteditable={editing} role="textbox" aria-multiline="true" aria-readonly={!editing} tabindex="0" aria-label={editing ? "編集可能な Markdown プレビュー" : "Markdown プレビュー"} spellcheck={editing} oninput={handleInput} onchange={handleTaskChange} onkeydown={selectPreviewContents} onpointerdown={(event) => pointerStart = { x: event.clientX, y: event.clientY }} onclick={selectPreviewLine}>{@html html}</div>
 </div>
