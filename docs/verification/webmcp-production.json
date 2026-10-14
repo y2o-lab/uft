@@ -1,0 +1,26 @@
+[
+  {
+    "browser": "153.0.8010.12",
+    "enabled": false,
+    "environment": {
+      "secure": true,
+      "isolated": true,
+      "modelContext": false
+    },
+    "errors": [],
+    "external": [],
+    "savedAfterReload": true
+  },
+  {
+    "browser": "153.0.8010.12",
+    "enabled": true,
+    "environment": {
+      "secure": true,
+      "isolated": true,
+      "modelContext": true
+    },
+    "errors": [],
+    "external": [],
+    "savedAfterReload": true
+  }
+]

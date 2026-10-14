@@ -4,6 +4,8 @@ import {
   defaultWorkspace,
   type Workspace,
 } from "../domain/workspace";
+import { CommandError } from "../webmcp/types";
+import { mergeWorkspaces } from "../workspace/workspace-sync";
 
 export type MigrationSnapshot = {
   id: string;
@@ -13,7 +15,28 @@ export type MigrationSnapshot = {
   reason: string;
 };
 
+export type RequestReceipt = {
+  requestId: string;
+  fingerprint: string;
+  result: import("../webmcp/types").ToolResult;
+};
+export type AtomicChange<T> = {
+  workspace: Workspace | null;
+  result: T;
+  receipt?: RequestReceipt;
+};
 export interface WorkspaceRepository {
+  read(id: string): Promise<Workspace | undefined>;
+  mergeSave(workspace: Workspace): Promise<Workspace>;
+  receipts(id: string): Promise<RequestReceipt[]>;
+  atomic<T>(
+    id: string,
+    operation: (
+      persisted: Workspace | undefined,
+      receipts: RequestReceipt[],
+    ) => AtomicChange<T>,
+    signal?: AbortSignal,
+  ): Promise<T>;
   open(id?: string): Promise<Workspace>;
   listWorkspaces(): Promise<
     Array<{ id: string; name: string; updatedAt: string }>
@@ -48,7 +71,7 @@ type LegacyResponse = {
 
 // Kept solely to import workspaces created by the previous OPFS SQLite build.
 // New writes use IndexedDB, whose transactions can be shared across tabs.
-class LegacyOpfsRepository implements WorkspaceRepository {
+class LegacyOpfsRepository {
   readonly mode = "opfs-sqlite" as const;
   #worker = new Worker(new URL("./workspace.worker.ts", import.meta.url), {
     type: "module",
@@ -289,6 +312,91 @@ class IndexedDbRepository implements WorkspaceRepository {
         updatedAt: workspace.updatedAt,
       }));
   }
+  read(id: string): Promise<Workspace | undefined> {
+    return this.#value<Workspace>("workspace", id);
+  }
+  receipts(id: string): Promise<RequestReceipt[]> {
+    return this.#value<RequestReceipt[]>(
+      "metadata",
+      `webmcpRequests:${id}`,
+    ).then((value) => value ?? []);
+  }
+  mergeSave(workspace: Workspace): Promise<Workspace> {
+    const local = cloneWorkspace(workspace);
+    return this.atomic(local.id, (persisted) => {
+      const merged = persisted ? mergeWorkspaces(persisted, local) : local;
+      return { workspace: merged, result: merged };
+    });
+  }
+  atomic<T>(
+    id: string,
+    operation: (
+      persisted: Workspace | undefined,
+      receipts: RequestReceipt[],
+    ) => AtomicChange<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    return this.#enqueue(async () => {
+      const db = await this.#openDb();
+      if (signal?.aborted) throw new CommandError("CANCELLED");
+      return new Promise<T>((resolve, reject) => {
+        const tx = db.transaction(["workspace", "metadata"], "readwrite");
+        const store = tx.objectStore("workspace");
+        const metadata = tx.objectStore("metadata");
+        const stored = store.get(id);
+        const receipts = metadata.get(`webmcpRequests:${id}`);
+        let result: T;
+        let error: unknown;
+        const abort = () => {
+          try {
+            tx.abort();
+          } catch {
+            /* already committed */
+          }
+        };
+        signal?.addEventListener("abort", abort, { once: true });
+        receipts.onsuccess = () => {
+          try {
+            if (signal?.aborted) throw new CommandError("CANCELLED");
+            const history = (receipts.result ?? []) as RequestReceipt[];
+            const change = operation(
+              stored.result as Workspace | undefined,
+              history,
+            );
+            result = change.result;
+            if (change.workspace)
+              store.put(cloneWorkspace(change.workspace), id);
+            if (change.receipt)
+              metadata.put(
+                [...history, change.receipt].slice(-100),
+                `webmcpRequests:${id}`,
+              );
+          } catch (cause) {
+            error = signal?.aborted ? new CommandError("CANCELLED") : cause;
+            try {
+              tx.abort();
+            } catch {
+              /* cancellation already aborted it */
+            }
+          }
+        };
+        const cleanup = () => signal?.removeEventListener("abort", abort);
+        tx.oncomplete = () => {
+          cleanup();
+          resolve(result);
+        };
+        tx.onabort = tx.onerror = () => {
+          cleanup();
+          reject(
+            error ??
+              (signal?.aborted
+                ? new CommandError("CANCELLED")
+                : (tx.error ?? new CommandError("SAVE_FAILED"))),
+          );
+        };
+      });
+    });
+  }
   save(workspace: Workspace): Promise<void> {
     return this.#enqueue(() => this.#saveWorkspace(workspace));
   }
@@ -393,7 +501,7 @@ export function createFallbackWorkspaceRepository(): WorkspaceRepository {
   return new IndexedDbRepository();
 }
 
-export function createLegacyOpfsRepository(): WorkspaceRepository | null {
+export function createLegacyOpfsRepository(): LegacyOpfsRepository | null {
   return typeof Worker !== "undefined" &&
     typeof navigator.storage?.getDirectory === "function"
     ? new LegacyOpfsRepository()
