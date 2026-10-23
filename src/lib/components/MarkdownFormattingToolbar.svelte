@@ -7,6 +7,7 @@
     Italic,
     List,
     ListOrdered,
+    ListTodo,
     Quote,
     SquareCode,
     Strikethrough,
@@ -39,6 +40,7 @@
       { format: "quote", label: "引用", icon: Quote },
       { format: "bullet-list", label: "箇条書き", icon: List },
       { format: "ordered-list", label: "番号付きリスト", icon: ListOrdered },
+      { format: "task-list", label: "チェックボックス", icon: ListTodo },
     ],
   ] as const;
 </script>

@@ -47,6 +47,7 @@
     if (element.closest("blockquote")) active.add("quote");
     if (element.closest("ul")) active.add("bullet-list");
     if (element.closest("ol")) active.add("ordered-list");
+    if (element.closest("li")?.querySelector(':scope > input[type="checkbox"], :scope > p > input[type="checkbox"]')) active.add("task-list");
     activeFormats = active;
   }
   function ensurePreviewSelection(): Selection | null {
@@ -117,6 +118,33 @@
     selection.addRange(nextRange);
     savedRange = nextRange.cloneRange();
   }
+  function togglePreviewTasks(): void {
+    const selection = window.getSelection();
+    if (!selection?.rangeCount) return;
+    const selectedItems = () => {
+      const range = selection.getRangeAt(0);
+      return [...host.querySelectorAll("li")].filter((item) =>
+        range.intersectsNode(item) && ![...item.querySelectorAll("li")].some((child) => range.intersectsNode(child))
+      );
+    };
+    if (!selectedItems().length) document.execCommand("insertUnorderedList");
+    const items = selectedItems();
+    const checkboxFor = (item: Element) => item.querySelector<HTMLInputElement>(':scope > input[type="checkbox"], :scope > p > input[type="checkbox"]');
+    const remove = items.length > 0 && items.every((item) => checkboxFor(item));
+    for (const item of items) {
+      const checkbox = checkboxFor(item);
+      if (remove) {
+        checkbox?.remove();
+        item.classList.remove("task-list-item");
+      } else if (!checkbox) {
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.contentEditable = "false";
+        (item.querySelector(":scope > p") ?? item).prepend(input, document.createTextNode(" "));
+        item.classList.add("task-list-item");
+      }
+    }
+  }
   async function formatPreview(formatName: MarkdownFormat): Promise<void> {
     if (!canEdit) return;
     if (!editing) { editing = true; await tick(); }
@@ -130,6 +158,7 @@
     else if (formatName === "code-block") document.execCommand("formatBlock", false, activeFormats.has(formatName) ? "p" : "pre");
     else if (formatName === "quote") document.execCommand("formatBlock", false, activeFormats.has(formatName) ? "p" : "blockquote");
     else if (formatName === "bullet-list") document.execCommand("insertUnorderedList");
+    else if (formatName === "task-list") togglePreviewTasks();
     else document.execCommand("insertOrderedList");
     handleInput();
     refreshActiveFormats();
