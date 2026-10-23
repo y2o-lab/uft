@@ -68,6 +68,7 @@ jobs:
 
   test:
     name: Test
+    timeout-minutes: 15
     if: ${{ hashFiles('package.json') != '' && hashFiles('pnpm-lock.yaml') != '' }}
     runs-on: ubuntu-latest
     steps:
@@ -90,3 +91,18 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+      - name: Install Chromium and system dependencies
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run WebMCP UI and IndexedDB integration tests
+        run: pnpm exec playwright test e2e/webmcp.spec.ts e2e/webmcp-storage.spec.ts e2e/webmcp-legacy.spec.ts --workers=2 --trace=retain-on-failure
+
+      - name: Upload failed browser traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webmcp-test-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

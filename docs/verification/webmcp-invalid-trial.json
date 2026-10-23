@@ -1,0 +1,30 @@
+{
+  "date": "2026-10-01T20:11:55.302Z",
+  "browser": "153.0.8010.12",
+  "url": "http://127.0.0.1:4174/workspace",
+  "expected": "disabled",
+  "environment": {
+    "secure": true,
+    "modelContext": false,
+    "tokens": 2
+  },
+  "trials": {
+    "originTrials": [
+      {
+        "trialName": "UNKNOWN",
+        "status": "ValidTokenNotProvided",
+        "tokensWithStatus": [
+          {
+            "rawTokenText": "invalid-first",
+            "status": "Malformed"
+          },
+          {
+            "rawTokenText": "invalid-second",
+            "status": "Malformed"
+          }
+        ]
+      }
+    ]
+  },
+  "errors": []
+}

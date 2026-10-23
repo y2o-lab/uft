@@ -8,7 +8,7 @@ export default defineConfig({
     video: process.env.PLAYWRIGHT_VIDEO === "1" ? "on" : "off",
     ...devices["Desktop Chrome"],
   },
-  webServer: {
+  webServer: process.env.WEBMCP_TRIAL_URL ? undefined : {
     command: "node ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 4173",
     url: "http://127.0.0.1:4173",
     reuseExistingServer: !process.env.CI,

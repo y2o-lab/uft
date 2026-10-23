@@ -128,7 +128,7 @@ async function checksum(bytes: Uint8Array): Promise<string> {
 
 export async function exportWorkspace(
   workspace: Workspace,
-  repository: WorkspaceRepository,
+  repository: Pick<WorkspaceRepository, "getAsset">,
 ): Promise<Blob> {
   const snapshot = cloneWorkspace(workspace);
   const output: Record<string, Uint8Array> = {};

@@ -12,6 +12,8 @@ import { mergeWorkspaces } from "./workspace-sync";
 type StatusTone = "info" | "error";
 
 export type WorkspaceSessionContext = {
+  isBusy?: () => boolean;
+  runExclusive?: <T>(operation: () => Promise<T>) => Promise<T>;
   getWorkspace: () => Workspace | null;
   setWorkspace: (workspace: Workspace) => void;
   getRepository: () => WorkspaceRepository | null;
@@ -132,14 +134,18 @@ export function createWorkspaceSession(
       !workspace ||
       !repository ||
       workspace.id !== workspaceId ||
-      synchronizing
+      synchronizing ||
+      context.isBusy?.()
     )
       return;
     synchronizing = true;
     try {
-      const stored = await repository.open(workspaceId);
-      const next = mergeWorkspaces(stored, workspace);
-      if (JSON.stringify(next) !== JSON.stringify(workspace)) {
+      const stored = await repository.read(workspaceId);
+      const latest = context.getWorkspace();
+      if (!stored || !latest || latest.id !== workspaceId || context.isBusy?.())
+        return;
+      const next = mergeWorkspaces(stored, latest);
+      if (JSON.stringify(next) !== JSON.stringify(latest)) {
         context.setWorkspace(next);
         await hydrateAssets();
         context.setStatus("別のタブの変更を同期しました");
@@ -169,7 +175,7 @@ export function createWorkspaceSession(
       workspace = await migrateLoadedWorkspace(workspace);
       // The initial fixture otherwise exists only in memory. Store it before
       // users can create or select another workspace so it is always reopenable.
-      await repository.save(workspace);
+      workspace = await repository.mergeSave(workspace);
       context.setWorkspace(workspace);
       startWorkspaceSync();
       const requestedEntryId = new URLSearchParams(window.location.search).get(
@@ -208,33 +214,44 @@ export function createWorkspaceSession(
   async function openWorkspace(selected: string): Promise<void> {
     const repository = context.getRepository();
     const currentWorkspace = context.getWorkspace();
-    if (!repository || !selected || selected === currentWorkspace?.id) return;
+    if (
+      context.isBusy?.() ||
+      !repository ||
+      !selected ||
+      selected === currentWorkspace?.id
+    )
+      return;
     try {
       // Finish any delayed auto-save while it still belongs to the currently
       // displayed workspace. A delayed save must never run after selection.
-      if (!(await context.saveNow())) return;
-      const workspace = await migrateLoadedWorkspace(
-        await repository.open(selected),
-      );
-      if (workspace.id !== selected)
-        throw new Error("指定されたワークスペースが見つかりません。");
-      context.setWorkspace(workspace);
-      context.setActiveEntryId(
-        workspace.lastOpenedEntryId ??
-          activeEntries(workspace).find((entry) => entry.kind === "markdown")
-            ?.id ??
-          null,
-      );
-      context.setExpanded(
-        new Set(
-          activeEntries(workspace)
-            .filter((entry) => entry.kind === "folder")
-            .map((entry) => entry.id),
-        ),
-      );
-      await hydrateAssets();
-      context.setStatus(`「${workspace.name}」を開きました`);
-      context.setStatusTone("info");
+      if (!(await context.saveNow()) || context.isBusy?.()) return;
+      const open = async () => {
+        if (context.isBusy?.()) return;
+        const workspace = await migrateLoadedWorkspace(
+          await repository.open(selected),
+        );
+        if (workspace.id !== selected)
+          throw new Error("指定されたワークスペースが見つかりません。");
+        if (context.isBusy?.()) return;
+        context.setWorkspace(workspace);
+        context.setActiveEntryId(
+          workspace.lastOpenedEntryId ??
+            activeEntries(workspace).find((entry) => entry.kind === "markdown")
+              ?.id ??
+            null,
+        );
+        context.setExpanded(
+          new Set(
+            activeEntries(workspace)
+              .filter((entry) => entry.kind === "folder")
+              .map((entry) => entry.id),
+          ),
+        );
+        await hydrateAssets();
+        context.setStatus(`「${workspace.name}」を開きました`);
+        context.setStatusTone("info");
+      };
+      await (context.runExclusive ? context.runExclusive(open) : open());
     } catch (error) {
       context.notify(error);
     }
