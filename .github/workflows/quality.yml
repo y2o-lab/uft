@@ -18,7 +18,6 @@ concurrency:
 jobs:
   lint:
     name: Lint
-    if: ${{ hashFiles('package.json') != '' && hashFiles('pnpm-lock.yaml') != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -43,7 +42,6 @@ jobs:
 
   format:
     name: Format
-    if: ${{ hashFiles('package.json') != '' && hashFiles('pnpm-lock.yaml') != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -68,7 +66,6 @@ jobs:
 
   test:
     name: Test
-    if: ${{ hashFiles('package.json') != '' && hashFiles('pnpm-lock.yaml') != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
