@@ -153,6 +153,16 @@ export function newId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
 }
 
+// A mutation must win against its saved version even within one millisecond.
+export function nextUpdatedAt(
+  previous: string,
+  timestamp = new Date().toISOString(),
+): string {
+  return timestamp > previous
+    ? timestamp
+    : new Date(Date.parse(previous) + 1).toISOString();
+}
+
 export function cloneWorkspace(workspace: Workspace): Workspace {
   // JSON also unwraps Svelte's reactive proxies before the snapshot crosses Worker/IDB boundaries.
   return JSON.parse(JSON.stringify(workspace)) as Workspace;

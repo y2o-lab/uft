@@ -78,7 +78,9 @@ export function createWorkspaceSession(
     if (!migration.migrated) return candidate;
     await repository.createMigrationSnapshot(
       candidate,
-      `workspace schema ${migration.fromVersion} to ${migration.toVersion}`,
+      migration.fromVersion !== migration.toVersion
+        ? `workspace schema ${migration.fromVersion} to ${migration.toVersion}`
+        : "repair workspace entry paths",
     );
     await repository.save(migration.workspace);
     return migration.workspace;

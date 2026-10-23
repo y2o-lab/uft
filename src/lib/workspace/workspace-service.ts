@@ -4,6 +4,7 @@ import {
   canMoveEntry,
   childPath,
   defaultName,
+  descendants,
   findEntry,
   recomputeDescendantPaths,
 } from "../domain/tree";
@@ -11,6 +12,7 @@ import {
   type DiagramDocument,
   type EntryKind,
   newId,
+  nextUpdatedAt,
   type Workspace,
   type WorkspaceEntry,
 } from "../domain/workspace";
@@ -69,7 +71,7 @@ export function renameEntry(
   const parent = assertParent(workspace, entry.parentId);
   entry.name = name.trim();
   entry.path = childPath(parent, entry.name);
-  entry.updatedAt = now();
+  entry.updatedAt = nextUpdatedAt(entry.updatedAt);
   recomputeDescendantPaths(workspace, entry);
   touch(workspace);
   return entry;
@@ -90,7 +92,7 @@ export function moveEntry(
   entry.sortOrder = workspace.entries.filter(
     (candidate) => candidate.parentId === parentId && !candidate.deletedAt,
   ).length;
-  entry.updatedAt = now();
+  entry.updatedAt = nextUpdatedAt(entry.updatedAt);
   recomputeDescendantPaths(workspace, entry);
   touch(workspace);
   return entry;
@@ -102,16 +104,10 @@ export function softDeleteEntry(
 ): WorkspaceEntry[] {
   const entry = findEntry(workspace, entryId);
   const deletedAt = now();
-  const deleted = [
-    entry,
-    ...workspace.entries.filter(
-      (candidate) =>
-        candidate.path.startsWith(`${entry.path}/`) && !candidate.deletedAt,
-    ),
-  ];
+  const deleted = [entry, ...descendants(workspace, entryId)];
   for (const item of deleted) {
     item.deletedAt = deletedAt;
-    item.updatedAt = deletedAt;
+    item.updatedAt = nextUpdatedAt(item.updatedAt, deletedAt);
   }
   if (
     workspace.lastOpenedEntryId === entryId ||
@@ -131,10 +127,7 @@ export function restoreEntries(workspace: Workspace, entryIds: string[]): void {
     // A restored entry must be newer than its tombstone. Otherwise a saved
     // deletion with the same timestamp wins during multi-tab save merging and
     // makes the item disappear again immediately after it is restored.
-    entry.updatedAt =
-      restoredAt > entry.updatedAt
-        ? restoredAt
-        : new Date(Date.parse(entry.updatedAt) + 1).toISOString();
+    entry.updatedAt = nextUpdatedAt(entry.updatedAt, restoredAt);
   }
   touch(workspace);
 }
