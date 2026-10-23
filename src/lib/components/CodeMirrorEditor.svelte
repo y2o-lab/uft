@@ -49,6 +49,7 @@
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: result.text },
       selection: { anchor: result.from, head: result.to },
+      filter: false,
     });
     view.focus();
     refreshActiveFormats();
@@ -59,6 +60,7 @@
     applyingExternalValue = true;
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: value },
+      filter: false,
     });
     applyingExternalValue = false;
     refreshActiveFormats();
@@ -74,8 +76,8 @@
   });
 
   async function setup(): Promise<void> {
-    const [{ EditorState, Compartment }, { EditorView, keymap, lineNumbers }, { defaultKeymap, history, historyKeymap, indentWithTab, selectAll }, { markdown }] = await Promise.all([
-      import("@codemirror/state"), import("@codemirror/view"), import("@codemirror/commands"), import("@codemirror/lang-markdown"),
+    const [{ EditorState, Compartment }, { EditorView, keymap, lineNumbers }, { defaultKeymap, history, historyKeymap, indentWithTab, selectAll }, { markdown }, { renumberOrderedLists }] = await Promise.all([
+      import("@codemirror/state"), import("@codemirror/view"), import("@codemirror/commands"), import("@codemirror/lang-markdown"), import("../markdown/ordered-list"),
     ]);
     editable = new Compartment();
     view = new EditorView({ parent: host, state: EditorState.create({ doc: value, extensions: [lineNumbers({ domEventHandlers: {
@@ -86,7 +88,7 @@
         editor.focus();
         return true;
       },
-    } }), EditorView.lineWrapping, history(), markdown(), keymap.of([{ key: "Ctrl-a", run: selectAll }, { key: "Mod-a", run: selectAll }, ...defaultKeymap, ...historyKeymap, indentWithTab]), editable.of(EditorView.editable.of(!readOnly)), EditorView.updateListener.of((update) => { if (update.docChanged && !applyingExternalValue) onChange(update.state.doc.toString()); if (update.docChanged || update.selectionSet) refreshActiveFormats(); })] }) });
+    } }), EditorView.lineWrapping, history(), markdown(), renumberOrderedLists, keymap.of([{ key: "Ctrl-a", run: selectAll }, { key: "Mod-a", run: selectAll }, ...defaultKeymap, ...historyKeymap, indentWithTab]), editable.of(EditorView.editable.of(!readOnly)), EditorView.updateListener.of((update) => { if (update.docChanged && !applyingExternalValue) onChange(update.state.doc.toString()); if (update.docChanged || update.selectionSet) refreshActiveFormats(); })] }) });
     reconfigureEditable = (nextReadOnly) => {
       if (view && editable)
         view.dispatch({
