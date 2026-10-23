@@ -1,4 +1,9 @@
-import type { EntryKind, Workspace, WorkspaceEntry } from "./workspace";
+import {
+  type EntryKind,
+  nextUpdatedAt,
+  type Workspace,
+  type WorkspaceEntry,
+} from "./workspace";
 
 const invalidName = /[\\/\0]|^\.{1,2}$/;
 
@@ -125,8 +130,38 @@ export function recomputeDescendantPaths(
     (candidate) => candidate.parentId === entry.id,
   )) {
     child.path = childPath(entry, child.name);
+    child.updatedAt = nextUpdatedAt(child.updatedAt, entry.updatedAt);
     recomputeDescendantPaths(workspace, child);
   }
+}
+
+/** Repair paths left stale by older clients without reviving deleted entries. */
+export function repairEntryPaths(workspace: Workspace): boolean {
+  const byParent = new Map<string | null, WorkspaceEntry[]>();
+  for (const entry of activeEntries(workspace)) {
+    const children = byParent.get(entry.parentId) ?? [];
+    children.push(entry);
+    byParent.set(entry.parentId, children);
+  }
+  let repaired = false;
+  const timestamp = new Date().toISOString();
+  const visit = (parent: WorkspaceEntry | null) => {
+    for (const entry of byParent.get(parent?.id ?? null) ?? []) {
+      const path = childPath(parent, entry.name);
+      if (entry.path !== path) {
+        entry.path = path;
+        entry.updatedAt = nextUpdatedAt(entry.updatedAt, timestamp);
+        repaired = true;
+      }
+      if (entry.kind === "folder") visit(entry);
+    }
+  };
+  // Only repair trees rooted in active folders. Orphans and cycles need an
+  // explicit recovery decision; guessing a parent could change user intent.
+  visit(null);
+  if (repaired)
+    workspace.updatedAt = nextUpdatedAt(workspace.updatedAt, timestamp);
+  return repaired;
 }
 
 export function orderedChildren(
