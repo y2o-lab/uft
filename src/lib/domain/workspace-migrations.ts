@@ -1,3 +1,4 @@
+import { repairEntryPaths } from "./tree";
 import {
   cloneWorkspace,
   WORKSPACE_SCHEMA_VERSION,
@@ -13,6 +14,7 @@ export type WorkspaceMigrationResult = {
   fromVersion: number;
   toVersion: number;
   migrated: boolean;
+  pathsRepaired: boolean;
 };
 
 function migrateV1ToV2(workspace: Workspace): Workspace {
@@ -56,10 +58,12 @@ export function migrateWorkspace(
     }
   }
 
+  const pathsRepaired = repairEntryPaths(migrated);
   return {
     workspace: migrated,
     fromVersion,
     toVersion: migrated.schemaVersion,
-    migrated: fromVersion !== migrated.schemaVersion,
+    migrated: fromVersion !== migrated.schemaVersion || pathsRepaired,
+    pathsRepaired,
   };
 }

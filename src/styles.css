@@ -302,6 +302,15 @@
 .preview-content.editing { outline: 0; box-shadow: inset 3px 0 #7fa47c; caret-color: #315f36; }
 .preview-content.editing:focus { background: linear-gradient(90deg, #f5faf2 0, #fffefa 16px); }
 .preview-content.editing a { pointer-events: none; }
+.preview-content.editing li { position: relative; }
+.list-drag-handle { position: absolute; left: -40px; top: 2px; width: 20px; height: 22px; padding: 0; border: 1px solid #cad7c7; border-radius: 4px; background: #f4f8f1; color: #3f6042; cursor: grab; user-select: none; }
+.list-drag-handle::before { content: "⠿"; font-size: 17px; }
+.list-drag-handle:hover, .list-drag-handle:focus-visible { background: #dcecd7; outline: 2px solid #7fa47c; }
+.list-drag-handle:active { cursor: grabbing; }
+.list-dragging { opacity: .45; }
+.preview-content li[data-list-drop="before"] { box-shadow: 0 -3px #6c936b; }
+.preview-content li[data-list-drop="after"] { box-shadow: 0 3px #6c936b; }
+@media print { .list-drag-handle { display: none !important; } }
 
 @media print {
   .preview-editor-bar { display: none !important; }

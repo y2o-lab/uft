@@ -1,5 +1,27 @@
 import { expect, test } from "@playwright/test";
 
+test("renumbers ordered lists after deleting source items", async ({ page }) => {
+  await page.goto("/workspace");
+  const source = page.locator(".cm-content");
+  await expect(source).toBeVisible();
+  await source.fill("1. first\n2. middle\n3. last");
+  await page.locator(".cm-gutterElement").filter({ hasText: /^2$/ }).click();
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Shift+ArrowDown");
+  await page.keyboard.press("Backspace");
+  await expect(source.locator(".cm-line")).toHaveText(["1. first", "2. last"]);
+  await page.locator(".cm-gutterElement").filter({ hasText: /^1$/ }).click();
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Shift+ArrowDown");
+  await page.keyboard.press("Backspace");
+  await expect(source.locator(".cm-line")).toHaveText(["1. last"]);
+  await expect(page.locator(".preview-content ol")).not.toHaveAttribute("start", "2");
+
+  await expect(page.locator(".status")).toHaveText("保存済み");
+  await page.reload();
+  await expect(page.locator(".cm-content .cm-line")).toHaveText(["1. last"]);
+});
+
 test("selects source lines and the whole Markdown document", async ({ page }) => {
   await page.goto("/workspace");
   const source = page.locator(".cm-content");

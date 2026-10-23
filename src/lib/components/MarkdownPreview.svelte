@@ -4,10 +4,20 @@
   import { renderMermaid } from "../markdown/mermaid";
   import { previewToMarkdown } from "../markdown/preview-to-markdown";
   import { renderMarkdown } from "../markdown/preview";
+  import { decorateListHandles, moveListItem } from "../markdown/list-reordering";
   import { setTaskChecked } from "../markdown/task-list";
   import type { MarkdownFormat } from "../markdown/formatting";
   let { markdown = "", assetUrls = {}, documentPath = "docs/overview.md", canEdit = false, onChange = () => undefined }: { markdown?: string; assetUrls?: Record<string, string>; documentPath?: string; canEdit?: boolean; onChange?: (markdown: string) => void } = $props();
   let html = $state(""); let host: HTMLElement; let renderVersion = 0; let editing = $state(false); let lastEmittedMarkdown: string | null = null; let activeFormats = $state(new Set<MarkdownFormat>()); let savedRange: Range | null = null;
+  let draggedItem: HTMLLIElement | null = null;
+  let dropTarget: HTMLLIElement | null = null;
+  let dropAfter = false;
+  $effect(() => {
+    if (html && host) {
+      decorateListHandles(host, editing && canEdit);
+      clearListDrag();
+    }
+  });
   let pointerStart: { x: number; y: number } | null = null;
   $effect(() => { if (editing && markdown === lastEmittedMarkdown) return; void updateHtml(markdown, assetUrls, documentPath); });
   $effect(() => { if (!canEdit && editing) editing = false; });
@@ -47,6 +57,7 @@
     if (element.closest("blockquote")) active.add("quote");
     if (element.closest("ul")) active.add("bullet-list");
     if (element.closest("ol")) active.add("ordered-list");
+    if (element.closest("li")?.querySelector(':scope > input[type="checkbox"], :scope > p > input[type="checkbox"]')) active.add("task-list");
     activeFormats = active;
   }
   function ensurePreviewSelection(): Selection | null {
@@ -117,6 +128,33 @@
     selection.addRange(nextRange);
     savedRange = nextRange.cloneRange();
   }
+  function togglePreviewTasks(): void {
+    const selection = window.getSelection();
+    if (!selection?.rangeCount) return;
+    const selectedItems = () => {
+      const range = selection.getRangeAt(0);
+      return [...host.querySelectorAll("li")].filter((item) =>
+        range.intersectsNode(item) && ![...item.querySelectorAll("li")].some((child) => range.intersectsNode(child))
+      );
+    };
+    if (!selectedItems().length) document.execCommand("insertUnorderedList");
+    const items = selectedItems();
+    const checkboxFor = (item: Element) => item.querySelector<HTMLInputElement>(':scope > input[type="checkbox"], :scope > p > input[type="checkbox"]');
+    const remove = items.length > 0 && items.every((item) => checkboxFor(item));
+    for (const item of items) {
+      const checkbox = checkboxFor(item);
+      if (remove) {
+        checkbox?.remove();
+        item.classList.remove("task-list-item");
+      } else if (!checkbox) {
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.contentEditable = "false";
+        (item.querySelector(":scope > p") ?? item).prepend(input, document.createTextNode(" "));
+        item.classList.add("task-list-item");
+      }
+    }
+  }
   async function formatPreview(formatName: MarkdownFormat): Promise<void> {
     if (!canEdit) return;
     if (!editing) { editing = true; await tick(); }
@@ -130,11 +168,12 @@
     else if (formatName === "code-block") document.execCommand("formatBlock", false, activeFormats.has(formatName) ? "p" : "pre");
     else if (formatName === "quote") document.execCommand("formatBlock", false, activeFormats.has(formatName) ? "p" : "blockquote");
     else if (formatName === "bullet-list") document.execCommand("insertUnorderedList");
+    else if (formatName === "task-list") togglePreviewTasks();
     else document.execCommand("insertOrderedList");
     handleInput();
     refreshActiveFormats();
   }
-  function handleInput(event?: Event): void { if (event?.target instanceof HTMLInputElement && event.target.type === "checkbox") return; if (!editing || !host) return; renderVersion += 1; refreshActiveFormats(); const nextMarkdown = previewToMarkdown(host); if (nextMarkdown === lastEmittedMarkdown) return; lastEmittedMarkdown = nextMarkdown; onChange(nextMarkdown); }
+  function handleInput(event?: Event): void { if (event?.target instanceof HTMLInputElement && event.target.type === "checkbox") return; if (!editing || !host) return; renderVersion += 1; decorateListHandles(host, canEdit); refreshActiveFormats(); const nextMarkdown = previewToMarkdown(host); if (nextMarkdown === lastEmittedMarkdown) return; lastEmittedMarkdown = nextMarkdown; onChange(nextMarkdown); }
   function handleTaskChange(event: Event): void {
     const checkbox = event.target;
     if (!canEdit || !(checkbox instanceof HTMLInputElement) || checkbox.type !== "checkbox") return;
@@ -143,6 +182,66 @@
     const index = [...host.querySelectorAll('input[type="checkbox"]')].indexOf(checkbox);
     const nextMarkdown = setTaskChecked(markdown, index, checkbox.checked);
     if (nextMarkdown !== markdown) onChange(nextMarkdown);
+  }
+  function clearListDrag(): void {
+    draggedItem?.classList.remove("list-dragging");
+    dropTarget?.removeAttribute("data-list-drop");
+    draggedItem = null;
+    dropTarget = null;
+    pointerStart = null;
+  }
+  function startListDrag(event: DragEvent): void {
+    const handle = event.target instanceof Element ? event.target.closest("[data-list-handle]") : null;
+    if (!editing || !canEdit || !handle || !event.dataTransfer) return;
+    const item = handle.closest("li");
+    if (!item || !host.contains(item)) return;
+    draggedItem = item;
+    pointerStart = null;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-uft-list-item", "move");
+    event.dataTransfer.setDragImage(item, 0, 0);
+    item.classList.add("list-dragging");
+    event.stopPropagation();
+  }
+  function overListItem(event: DragEvent): void {
+    if (!editing || !canEdit || !draggedItem) return;
+    // Suppress the contenteditable browser drop, which would insert drag text.
+    event.preventDefault();
+    event.stopPropagation();
+    dropTarget?.removeAttribute("data-list-drop");
+    dropTarget = null;
+    const target = event.target instanceof Element ? event.target.closest("li") : null;
+    if (!target || !host.contains(target) || target === draggedItem || draggedItem.contains(target)) {
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "none";
+      return;
+    }
+    dropTarget = target;
+    const bounds = target.getBoundingClientRect();
+    dropAfter = event.clientY >= bounds.top + bounds.height / 2;
+    target.dataset.listDrop = dropAfter ? "after" : "before";
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  }
+  function dropListItem(event: DragEvent): void {
+    if (!draggedItem) return;
+    overListItem(event);
+    const moved = editing && canEdit && dropTarget && moveListItem(host, draggedItem, dropTarget, dropAfter);
+    clearListDrag();
+    if (moved) { savedRange = null; handleInput(); }
+  }
+  function previewKeydown(event: KeyboardEvent): void {
+    const handle = event.target instanceof Element ? event.target.closest("[data-list-handle]") : null;
+    if (editing && canEdit && handle && event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      event.preventDefault();
+      const item = handle.closest("li");
+      const after = event.key === "ArrowDown";
+      const sibling = after ? item?.nextElementSibling : item?.previousElementSibling;
+      if (item && sibling instanceof HTMLLIElement && moveListItem(host, item, sibling, after)) {
+        handleInput();
+        item.querySelector<HTMLButtonElement>("[data-list-handle]")?.focus();
+      }
+      return;
+    }
+    selectPreviewContents(event);
   }
   function stopEditing(): void { editing = false; activeFormats = new Set(); savedRange = null; lastEmittedMarkdown = null; }
   function selectPreviewContents(event: KeyboardEvent): void {
@@ -164,7 +263,7 @@
     if (!start || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 4) return;
     const target = event.target;
     if (!(target instanceof Element)) return;
-    if (target.closest('input[type="checkbox"]')) return;
+    if (target.closest('input[type="checkbox"], [data-list-handle]')) return;
     const line = target.closest("h1, h2, h3, h4, h5, h6, p, li, blockquote, pre, td, th");
     if (!line || !host.contains(line)) return;
     window.setTimeout(() => {
@@ -186,5 +285,5 @@
     {#if editing}<span class="preview-editing-note">Markdown に自動反映</span>{/if}
     {#if canEdit}<button type="button" class="preview-edit-toggle" class:active={editing} aria-pressed={editing} onclick={() => editing ? stopEditing() : editing = true}>{editing ? "編集を終了" : "プレビューを編集"}</button>{/if}
   </div>
-  <div class:editing class="preview-content" bind:this={host} contenteditable={editing} role="textbox" aria-multiline="true" aria-readonly={!editing} tabindex="0" aria-label={editing ? "編集可能な Markdown プレビュー" : "Markdown プレビュー"} spellcheck={editing} oninput={handleInput} onchange={handleTaskChange} onkeydown={selectPreviewContents} onpointerdown={(event) => pointerStart = { x: event.clientX, y: event.clientY }} onclick={selectPreviewLine}>{@html html}</div>
+  <div class:editing class="preview-content" bind:this={host} contenteditable={editing} role="textbox" aria-multiline="true" aria-readonly={!editing} tabindex="0" aria-label={editing ? "編集可能な Markdown プレビュー" : "Markdown プレビュー"} spellcheck={editing} oninput={handleInput} onchange={handleTaskChange} onkeydown={previewKeydown} ondragstart={startListDrag} ondragover={overListItem} ondrop={dropListItem} ondragend={clearListDrag} onpointerdown={(event) => pointerStart = { x: event.clientX, y: event.clientY }} onclick={selectPreviewLine}>{@html html}</div>
 </div>
