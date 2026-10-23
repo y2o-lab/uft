@@ -8,7 +8,8 @@ export type MarkdownFormat =
   | "code-block"
   | "quote"
   | "bullet-list"
-  | "ordered-list";
+  | "ordered-list"
+  | "task-list";
 
 export type MarkdownSelection = { from: number; to: number };
 
@@ -82,7 +83,8 @@ function selectedLineBounds(
   text: string,
   selection: MarkdownSelection,
 ): { start: number; end: number } {
-  const start = text.lastIndexOf("\n", Math.max(0, selection.from - 1)) + 1;
+  const start =
+    selection.from === 0 ? 0 : text.lastIndexOf("\n", selection.from - 1) + 1;
   const nextBreak = text.indexOf("\n", selection.to);
   return { start, end: nextBreak === -1 ? text.length : nextBreak };
 }
@@ -117,6 +119,47 @@ function prefixLines(
     return { text: nextText, from: caret, to: caret };
   }
 
+  return { text: nextText, from: start, to: start + transformed.length };
+}
+
+function taskList(
+  text: string,
+  selection: MarkdownSelection,
+): MarkdownFormatResult {
+  const start =
+    selection.from === 0 ? 0 : text.lastIndexOf("\n", selection.from - 1) + 1;
+  const last =
+    selection.to > selection.from && text[selection.to - 1] === "\n"
+      ? selection.to - 1
+      : selection.to;
+  const nextBreak = text.indexOf("\n", last);
+  const end = nextBreak === -1 ? text.length : nextBreak;
+  const lines = text.slice(start, end).split("\n");
+  const task = /^(\s*)([-+*]|\d+[.)])\s+\[[ xX]\](?:[ \t]+|$)/;
+  const list = /^(\s*)(?:[-+*]|\d+[.)])\s+/;
+  const remove = lines.every((line) => task.test(line));
+  const transformed = lines
+    .map((line) => {
+      if (remove) return line.replace(task, "$1- ");
+      if (task.test(line)) return line;
+      if (list.test(line)) return line.replace(list, "$1- [ ] ");
+      return line.replace(/^(\s*)/, "$1- [ ] ");
+    })
+    .join("\n");
+  const nextText = text.slice(0, start) + transformed + text.slice(end);
+  if (selection.from === selection.to) {
+    const prefix =
+      lines[0].match(task)?.[0].length ??
+      lines[0].match(list)?.[0].length ??
+      lines[0].match(/^\s*/)?.[0].length ??
+      0;
+    const nextPrefix = transformed.match(remove ? list : task)?.[0].length ?? 0;
+    const caret = Math.max(
+      start + nextPrefix,
+      selection.from + nextPrefix - prefix,
+    );
+    return { text: nextText, from: caret, to: caret };
+  }
   return { text: nextText, from: start, to: start + transformed.length };
 }
 
@@ -195,6 +238,7 @@ export function applyMarkdownFormat(
   if (format === "heading-1") return heading(text, selection, 1);
   if (format === "heading-2") return heading(text, selection, 2);
   if (format === "code-block") return codeBlock(text, selection);
+  if (format === "task-list") return taskList(text, selection);
   if (format === "quote") return prefixLines(text, selection, "> ", /^>\s?/);
   if (format === "bullet-list")
     return prefixLines(text, selection, "- ", /^\s*[-+*]\s+/);
@@ -220,6 +264,8 @@ export function activeMarkdownFormats(
   if (/^>\s?/.test(line)) active.add("quote");
   if (/^\s*[-+*]\s+/.test(line)) active.add("bullet-list");
   if (/^\s*\d+[.)]\s+/.test(line)) active.add("ordered-list");
+  if (/^\s*(?:[-+*]|\d+[.)])\s+\[[ xX]\](?:[ \t]+|$)/.test(line))
+    active.add("task-list");
 
   for (const [format, markers] of Object.entries(inlineFormats) as Array<
     [MarkdownFormat, NonNullable<(typeof inlineFormats)[MarkdownFormat]>]

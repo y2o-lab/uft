@@ -2,6 +2,69 @@ import { describe, expect, it } from "vitest";
 import { activeMarkdownFormats, applyMarkdownFormat } from "./formatting";
 
 describe("Markdown formatting", () => {
+  it("inserts an empty task with the caret ready for typing", () => {
+    expect(applyMarkdownFormat("", { from: 0, to: 0 }, "task-list")).toEqual({
+      text: "- [ ] ",
+      from: 6,
+      to: 6,
+    });
+    expect(
+      applyMarkdownFormat("\nNext", { from: 0, to: 0 }, "task-list"),
+    ).toEqual({ text: "- [ ] \nNext", from: 6, to: 6 });
+  });
+
+  it("converts the current line and keeps the caret in its text", () => {
+    expect(
+      applyMarkdownFormat("Task\nOther", { from: 2, to: 2 }, "task-list"),
+    ).toEqual({ text: "- [ ] Task\nOther", from: 8, to: 8 });
+  });
+
+  it("converts lists without duplicating markers or losing indentation or checked state", () => {
+    const text = "- First\n  2. Nested\n+ [X] Done\nPlain";
+    const result = applyMarkdownFormat(
+      text,
+      { from: 0, to: text.length },
+      "task-list",
+    );
+    expect(result.text).toBe(
+      "- [ ] First\n  - [ ] Nested\n+ [X] Done\n- [ ] Plain",
+    );
+    expect(result.text.slice(result.from, result.to)).toBe(result.text);
+    expect(applyMarkdownFormat(result.text, result, "task-list").text).toBe(
+      "- First\n  - Nested\n- Done\n- Plain",
+    );
+  });
+
+  it("does not change the next line when selection ends at its start", () => {
+    expect(
+      applyMarkdownFormat("First\nOther", { from: 0, to: 6 }, "task-list"),
+    ).toEqual({ text: "- [ ] First\nOther", from: 0, to: 11 });
+  });
+
+  it("removes a checked task marker while preserving the caret", () => {
+    expect(
+      applyMarkdownFormat("  - [x] Done", { from: 10, to: 10 }, "task-list"),
+    ).toEqual({ text: "  - Done", from: 6, to: 6 });
+  });
+
+  it.each(["- [ ] Task", "+ [x] Task", "  * [X] Task", "1. [ ] Task"])(
+    "reports task format for %s",
+    (text) => {
+      expect(
+        activeMarkdownFormats(text, { from: text.length, to: text.length }),
+      ).toContain("task-list");
+    },
+  );
+
+  it.each(["- Plain", "- [no] Task", "[ ] Plain"])(
+    "does not report task format for %s",
+    (text) => {
+      expect(
+        activeMarkdownFormats(text, { from: text.length, to: text.length }),
+      ).not.toContain("task-list");
+    },
+  );
+
   it("wraps a selection and keeps its contents selected", () => {
     expect(
       applyMarkdownFormat("Write clearly", { from: 6, to: 13 }, "bold"),
