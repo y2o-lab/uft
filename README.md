@@ -22,6 +22,8 @@ pnpm build
 
 依存関係、GitHub Actions、Terraform provider の更新には Renovate を使用します。初回の GitHub 設定と運用方針は [Renovate の導入と運用](docs/renovate.md) を参照してください。
 
+PR の日本語レビューには CodeRabbit、JavaScript/TypeScript と GitHub Actions のセキュリティ解析には CodeQL を使用します。設定内容と初回の確認事項は [コードレビューとセキュリティ解析](docs/code-review.md) を参照してください。
+
 Cloudflare Pages では build command に `bun run build`、output directory に `dist` を指定します。
 
 ## 保存と配信
