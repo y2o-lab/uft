@@ -446,6 +446,10 @@ async function dispatch(request: Request): Promise<unknown> {
 }
 
 self.addEventListener("message", (event: MessageEvent<Request>) => {
+  // Dedicated Worker messages use an empty origin, unlike Window messages.
+  // Only accept browser-delivered messages through the Worker's private port.
+  if (event.origin !== "" || !event.isTrusted) return;
+
   dispatch(event.data).then(
     (result) =>
       self.postMessage({

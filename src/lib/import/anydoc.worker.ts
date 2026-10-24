@@ -82,6 +82,10 @@ function normalizeError(error: unknown): NormalizedError {
 self.addEventListener(
   "message",
   async (event: MessageEvent<ConvertRequest>) => {
+    // Dedicated Worker messages use an empty origin, unlike Window messages.
+    // Only accept browser-delivered messages through the Worker's private port.
+    if (event.origin !== "" || !event.isTrusted) return;
+
     const request = event.data;
     if (request.type !== "convert") return;
     try {
