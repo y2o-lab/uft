@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DocumentSearch from "./DocumentSearch.svelte";
   import { onMount } from "svelte";
   import type { Compartment } from "@codemirror/state";
   import type { EditorView } from "@codemirror/view";
@@ -9,8 +10,8 @@
     type MarkdownFormat,
   } from "../markdown/formatting";
 
-  let { value = "", readOnly = false, onChange = () => undefined, onReady = () => undefined }: { value?: string; readOnly?: boolean; onChange?: (value: string) => void; onReady?: (insert: (text: string) => void) => void } = $props();
-  let host: HTMLDivElement;
+  let { value = "", documentKey = "", readOnly = false, onChange = () => undefined, onReady = () => undefined }: { value?: string; documentKey?: string; readOnly?: boolean; onChange?: (value: string) => void; onReady?: (insert: (text: string) => void) => void } = $props();
+  let host = $state<HTMLDivElement>(undefined!);
   // The view is reactive so the external-value effect also runs once the
   // asynchronous CodeMirror setup has completed. Without this, a value that
   // arrives from another tab can update the preview while leaving this editor
@@ -101,7 +102,8 @@
   }
 </script>
 
-<div class="markdown-source-editor">
+<div class="markdown-source-editor document-search-scope">
   <MarkdownFormattingToolbar active={activeFormats} disabled={readOnly || !ready} onFormat={format} />
+  <DocumentSearch target={host} editor={view} revision={value} {documentKey} label="エディタ" />
   <div class:loading={!ready} class="codemirror-host" bind:this={host} aria-label="Markdown editor">{#if !ready}<p>エディタを読み込んでいます…</p>{/if}</div>
 </div>
