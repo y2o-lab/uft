@@ -46,6 +46,8 @@ AWS ノードは AWS 公式アーキテクチャアイコンを使用し、生�
 
 最初に表示される `/` はツールランチャーです。Markdown の編集は `/workspace`、文書変換は `/convert-to-markdown`（またはワークスペースのコマンドパレットの「文書をインポート」）から直接開けます。ランチャーではツール名・機能で絞り込め、どの画面からでも <kbd>⌘/Ctrl + K</kbd> でページを離れずに Spotlight 風の検索ランチャーを開けます。<kbd>↑↓</kbd> と <kbd>Enter</kbd> で選択・起動、<kbd>Esc</kbd> で閉じられます。ワークスペースのコマンドパレットは <kbd>⌘/Ctrl + Shift + K</kbd> です。新しいローカルツールもこのランチャーへ追加できます。
 
+Markdown のエディタまたはプレビューで <kbd>⌘/Ctrl + F</kbd> を押すと、操作中の本文内を検索できます。「検索」ボタンからも開けます。検索は大文字・小文字を区別しない文字列検索で、一致箇所と件数を表示します。<kbd>Enter</kbd> / <kbd>Shift + Enter</kbd>（または ↑↓ ボタン）で前後の一致へ移動し、<kbd>Esc</kbd> で閉じます。プレビューは装飾を除いた表示テキストを検索し、元の Markdown を変更しません。
+
 ワークスペースは編集画面の「新規 WS」、コマンドパレット、または <kbd>⌘/Ctrl + Alt + N</kbd> から作成できます。
 
 変換画面では、Word（`.doc`, `.docx`, `.docm`）、PowerPoint、Excel、OpenDocument、RTF、EPUB、CSV、PDF を複数選択して Markdown に変換できます。変換は `@firecrawl/anydoc-wasm` を専用 Worker で実行するため、ファイル内容はブラウザ外へ送信されず、変換中も編集画面をブロックしません。
