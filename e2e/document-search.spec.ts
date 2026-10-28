@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { cloneWorkspace, defaultWorkspace } from "../src/lib/domain/workspace";
 
 test.use({
   launchOptions: process.env.PLAYWRIGHT_VIDEO === "1" ? { slowMo: 350 } : {},
@@ -199,3 +200,50 @@ for (const width of [1280, 390]) {
     await page.screenshot({ path: testInfo.outputPath(`sticky-search-${width}.png`) });
   });
 }
+
+test('resets source search across workspaces that share legacy entry IDs', async ({ page }) => {
+  const first = cloneWorkspace(defaultWorkspace);
+  const second = cloneWorkspace(defaultWorkspace);
+  second.id = 'legacy-copy';
+  second.name = 'Legacy copy';
+  for (const entry of second.entries) entry.workspaceId = second.id;
+  const entryId = first.lastOpenedEntryId!;
+  first.documents[entryId].content = '# First needle';
+  second.documents[entryId].content = '# Second needle';
+  await page.goto('/');
+  await page.evaluate(async (workspaces) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('uft-fallback', 2);
+      request.onupgradeneeded = () => {
+        for (const store of ['workspace', 'metadata', 'assets']) request.result.createObjectStore(store);
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction(['workspace', 'metadata'], 'readwrite');
+        for (const workspace of workspaces) transaction.objectStore('workspace').put(workspace, workspace.id);
+        transaction.objectStore('metadata').put(workspaces[0].id, 'activeWorkspaceId');
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+      });
+    } finally { db.close(); }
+  }, [first, second]);
+  await page.goto('/workspace');
+  const source = page.locator('.cm-content');
+  await expect(source).toContainText('# First needle');
+  const editorElement = await source.elementHandle();
+  await page.getByRole('button', { name: 'エディタ内を検索', exact: true }).click();
+  await page.getByLabel('エディタ内の検索語').fill('needle');
+  await expect(page.getByRole('search').locator('output')).toHaveText('1 / 1');
+  await page.getByRole('button', { name: /コマンド/ }).click();
+  await page.getByRole('button', { name: 'ワークスペースを開く', exact: true }).click();
+  await page.getByRole('combobox', { name: 'ワークスペース ID' }).selectOption(second.id);
+  await page.getByRole('dialog').getByRole('button', { name: '開く', exact: true }).click();
+  await expect(source).toContainText('# Second needle');
+  expect(await editorElement?.evaluate((element) => element.isConnected)).toBe(true);
+  await expect(page.getByRole('search')).toHaveCount(0);
+  await source.press('Meta+f');
+  await expect(page.getByLabel('エディタ内の検索語')).toHaveValue('');
+});
