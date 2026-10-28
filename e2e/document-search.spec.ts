@@ -247,3 +247,68 @@ test('resets source search across workspaces that share legacy entry IDs', async
   await source.press('Meta+f');
   await expect(page.getByLabel('エディタ内の検索語')).toHaveValue('');
 });
+
+test('keeps the source editing position while updating search matches', async ({ page }) => {
+  await page.goto('/workspace');
+  const source = page.locator('.cm-content');
+  await expect(source).toBeVisible();
+  await source.fill(['needle at start', ...Array.from({ length: 100 }, (_, i) => `Paragraph ${i}`), 'Last editable paragraph'].join('\n\n'));
+  await page.getByRole('button', { name: 'エディタ内を検索', exact: true }).click();
+  const search = page.getByRole('search', { name: 'エディタ内を検索' });
+  const input = search.getByRole('textbox');
+  await input.fill('needle');
+  await expect(search.locator('output')).toHaveText('1 / 1');
+  await source.focus();
+  await source.press('Meta+End');
+  const scroller = page.locator('.cm-scroller');
+  await expect.poll(() => scroller.evaluate((node) => node.scrollTop)).toBeGreaterThan(1000);
+  const before = await scroller.evaluate((node) => node.scrollTop);
+  await page.keyboard.insertText(' needle');
+  await expect(search.locator('output')).toHaveText('1 / 2');
+  await expect.poll(() => scroller.evaluate((node) => node.scrollTop)).toBeGreaterThan(before - 100);
+  await expect(page.locator('.document-match')).toHaveCount(1);
+  await search.getByRole('button', { name: '次の一致' }).click();
+  await expect(search.locator('output')).toHaveText('2 / 2');
+  await search.getByRole('button', { name: '前の一致' }).click();
+  await expect.poll(() => scroller.evaluate((node) => node.scrollTop)).toBeLessThan(200);
+  await input.fill('Last editable');
+  await expect.poll(() => scroller.evaluate((node) => node.scrollTop)).toBeGreaterThan(1000);
+  // A single-result navigation must scroll again even though its index stays 0.
+  await scroller.evaluate((node) => { node.scrollTop = 0; });
+  await input.press('Enter');
+  await expect.poll(() => scroller.evaluate((node) => node.scrollTop)).toBeGreaterThan(1000);
+});
+
+test('keeps the preview editing position while updating search matches', async ({ page }) => {
+  await page.goto('/workspace');
+  const source = page.locator('.cm-content');
+  await expect(source).toBeVisible();
+  await source.fill(['needle at start', ...Array.from({ length: 100 }, (_, i) => `Paragraph ${i}`), 'Last editable paragraph'].join('\n\n'));
+  await page.getByRole('button', { name: 'プレビューを編集', exact: true }).click();
+  await page.getByRole('button', { name: 'プレビュー内を検索', exact: true }).click();
+  const search = page.getByRole('search', { name: 'プレビュー内を検索' });
+  await search.getByRole('textbox').fill('needle');
+  await expect(search.locator('output')).toHaveText('1 / 1');
+  const last = page.locator('.preview-content p').last();
+  await last.scrollIntoViewIfNeeded();
+  await last.evaluate((paragraph) => {
+    const host = paragraph.closest<HTMLElement>('.preview-content');
+    host?.focus({ preventScroll: true });
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    range.collapse(false);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+  const pane = page.locator('.preview-pane');
+  const before = await pane.evaluate((node) => node.scrollTop);
+  expect(before).toBeGreaterThan(1000);
+  await page.keyboard.insertText(' needle');
+  await expect(search.locator('output')).toHaveText('1 / 2');
+  await expect.poll(() => pane.evaluate((node) => node.scrollTop)).toBeGreaterThan(before - 100);
+  await search.getByRole('button', { name: '次の一致' }).click();
+  await expect(search.locator('output')).toHaveText('2 / 2');
+  await search.getByRole('button', { name: '前の一致' }).click();
+  await expect.poll(() => pane.evaluate((node) => node.scrollTop)).toBeLessThan(200);
+});

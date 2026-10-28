@@ -14,10 +14,12 @@
   let open = $state(false);
   let query = $state("");
   let current = $state(0);
+  let scrollRequest = $state(0);
+  let lastScrollRequest = 0;
   let count = $state(0);
   let input = $state<HTMLInputElement>(undefined!);
   let panel: HTMLDivElement;
-  let moveTo = $state<((index: number) => void) | undefined>(undefined);
+  let updateMatches = $state<((index: number, scroll: boolean) => void) | undefined>(undefined);
   const compartment = new Compartment();
   const content = $derived(revision);
   const documentIdentity = $derived(documentKey);
@@ -43,7 +45,9 @@
     else target?.focus({ preventScroll: true });
   }
   function navigate(direction: number): void {
-    if (count) current = (current + direction + count) % count;
+    if (!count) return;
+    current = (current + direction + count) % count;
+    scrollRequest += 1;
   }
   function keydown(event: KeyboardEvent): void {
     if (event.key === "Escape") {
@@ -94,7 +98,7 @@
         const matches = findTextMatches(viewTarget.state.doc.toString(), search);
         count = matches.length;
         const view = viewTarget;
-        moveTo = (index) => {
+        updateMatches = (index, scroll) => {
           view.dispatch({ effects: compartment.reconfigure(
             EditorView.decorations.compute(["doc"], (state) => Decoration.set(
               findTextMatches(state.doc.toString(), search).map((match, position) =>
@@ -103,13 +107,13 @@
             ))
           ) });
           const match = matches[index];
-          if (match) view.dispatch({ effects: EditorView.scrollIntoView(match.from, { y: "center" }) });
+          if (match && scroll) view.dispatch({ effects: EditorView.scrollIntoView(match.from, { y: "center" }) });
         };
       } else if (previewTarget) {
         if (!search) {
           clearPreview();
           count = 0;
-          moveTo = undefined;
+          updateMatches = undefined;
           return;
         }
         const host = previewTarget;
@@ -117,7 +121,7 @@
           const ranges = previewSearchRanges(host, search);
           count = ranges.length;
           if (current >= count) current = 0;
-          moveTo = (index) => {
+          updateMatches = (index, scroll) => {
             clearPreview();
             const HighlightClass = (window as unknown as { Highlight?: new (...ranges: Range[]) => unknown }).Highlight;
             if (HighlightClass) {
@@ -125,14 +129,14 @@
               if (ranges[index]) highlights()?.set(`${highlightName}-active`, new HighlightClass(ranges[index]));
             }
             const range = ranges[index];
-            if (range) {
+            if (range && scroll) {
               // Scroll the preview pane itself, preserving the search input focus.
               const pane = host.closest(".preview-pane");
               const bounds = range.getBoundingClientRect();
               if (pane) pane.scrollTop += bounds.top - pane.getBoundingClientRect().top - pane.clientHeight / 2;
             }
           };
-          moveTo(current);
+          updateMatches(current, false);
         };
         update();
         const observer = new MutationObserver(update);
@@ -141,13 +145,24 @@
       }
     });
   });
-  $effect(() => { moveTo?.(current); });
+  $effect(() => {
+    const update = updateMatches;
+    const index = current;
+    const request = scrollRequest;
+    untrack(() => {
+      // Content updates repaint matches in place. Only explicit search actions
+      // request scrolling, including navigation when there is just one result.
+      const scroll = request !== lastScrollRequest;
+      lastScrollRequest = request;
+      update?.(index, scroll);
+    });
+  });
 </script>
 
 <div bind:this={panel} class="document-search" class:search-open={open}>
   {#if open}
     <div class="document-search-controls" role="search" aria-label={`${label}内を検索`}>
-      <input bind:this={input} bind:value={query} aria-label={`${label}内の検索語`} placeholder="文書内を検索…" autocomplete="off" onkeydown={keydown} oninput={() => current = 0} />
+      <input bind:this={input} bind:value={query} aria-label={`${label}内の検索語`} placeholder="文書内を検索…" autocomplete="off" onkeydown={keydown} oninput={() => { current = 0; scrollRequest += 1; }} />
       <output aria-live="polite">{query ? count ? `${current + 1} / ${count}` : "一致なし" : "検索語を入力"}</output>
       <button type="button" onkeydown={keydown} aria-label="前の一致" title="前の一致 (Shift+Enter)" disabled={!count} onclick={() => navigate(-1)}>↑</button>
       <button type="button" onkeydown={keydown} aria-label="次の一致" title="次の一致 (Enter)" disabled={!count} onclick={() => navigate(1)}>↓</button>
