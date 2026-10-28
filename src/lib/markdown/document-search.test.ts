@@ -33,3 +33,21 @@ describe("document search", () => {
     expect(previewSearchRanges(host, "文書検索")).toHaveLength(0);
   });
 });
+
+it("keeps nested block matches in document order and separates surrounding text", () => {
+  const host = document.createElement("div");
+  host.innerHTML =
+    "<ul><li>before target<pre><code>nested target</code></pre>after target</li></ul>";
+  const ranges = previewSearchRanges(host, "target");
+  expect(ranges.map((range) => range.startContainer.textContent)).toEqual([
+    "before target",
+    "nested target",
+    "after target",
+  ]);
+  expect(ranges.map((range) => range.toString())).toEqual([
+    "target",
+    "target",
+    "target",
+  ]);
+  expect(previewSearchRanges(host, "targetafter")).toHaveLength(0);
+});

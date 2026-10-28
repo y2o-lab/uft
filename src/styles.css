@@ -355,7 +355,7 @@
 /* Document search remains outside editable content and never changes Markdown. */
 .markdown-source-editor { grid-template-rows: auto auto minmax(0, 1fr); }
 .document-search { padding: 4px 10px; border-bottom: 1px solid #e3e7e0; background: #f8faf5; }
-.markdown-preview > .document-search { position: sticky; top: 0; z-index: 3; }
+.markdown-preview > .document-search { position: sticky; top: var(--preview-toolbar-height, 0px); z-index: 3; }
 .document-search-trigger { border: 0; background: transparent; color: #596b55; padding: 3px 6px; font-size: 12px; }
 .document-search-trigger kbd { margin-left: 6px; color: #7d857a; font-size: 10px; }
 .document-search-controls { display: flex; align-items: center; gap: 5px; }

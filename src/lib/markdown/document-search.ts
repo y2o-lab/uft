@@ -15,7 +15,7 @@ export function findTextMatches(text: string, query: string): TextMatch[] {
 
 /** Keep block boundaries separate while allowing matches across inline markup. */
 export function previewSearchRanges(host: HTMLElement, query: string): Range[] {
-  const groups = new Map<Element, Text[]>();
+  const groups: { block: Element; nodes: Text[] }[] = [];
   const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
   let node = walker.nextNode();
   while (node) {
@@ -25,14 +25,14 @@ export function previewSearchRanges(host: HTMLElement, query: string): Range[] {
         "h1,h2,h3,h4,h5,h6,p,li,pre,td,th,blockquote",
       );
       const key = block && host.contains(block) ? block : host;
-      const nodes = groups.get(key) ?? [];
-      nodes.push(node as Text);
-      groups.set(key, nodes);
+      const previous = groups.at(-1);
+      if (previous?.block === key) previous.nodes.push(node as Text);
+      else groups.push({ block: key, nodes: [node as Text] });
     }
     node = walker.nextNode();
   }
   const ranges: Range[] = [];
-  for (const nodes of groups.values()) {
+  for (const { nodes } of groups) {
     const text = nodes.map((node) => node.data).join("");
     for (const match of findTextMatches(text, query)) {
       let offset = 0;

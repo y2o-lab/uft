@@ -116,3 +116,86 @@ test('refreshes matches while editing, scrolls to distant results and resets on 
   await expect(page.getByRole('search')).toHaveCount(0);
   await expect(source).not.toContainText('needle');
 });
+
+test('does not scan preview text while search is closed or empty', async ({ page }) => {
+  await page.goto('/workspace');
+  await expect(page.locator('.cm-content')).toBeVisible();
+  await page.evaluate(() => {
+    const original = document.createTreeWalker.bind(document);
+    let scans = 0;
+    document.createTreeWalker = (...args) => {
+      if (args[0] instanceof HTMLElement && args[0].classList.contains('preview-content')) scans++;
+      return original(...args);
+    };
+    Object.defineProperty(window, '__previewSearchScans', { get: () => scans });
+  });
+  const scans = () => page.evaluate(() => (window as unknown as { __previewSearchScans: number }).__previewSearchScans);
+  await page.getByRole('button', { name: 'プレビューを編集', exact: true }).click();
+  const preview = page.getByLabel('編集可能な Markdown プレビュー');
+  await preview.fill('needle first');
+  await expect(page.locator('.cm-content')).toContainText('needle first');
+  expect(await scans()).toBe(0);
+  await preview.press('Control+f');
+  const input = page.getByLabel('プレビュー内の検索語');
+  await preview.fill('needle second');
+  await expect(page.locator('.cm-content')).toContainText('needle second');
+  expect(await scans()).toBe(0);
+  await input.fill('needle');
+  await expect(page.getByRole('search').locator('output')).toHaveText('1 / 1');
+  expect(await scans()).toBeGreaterThan(0);
+  await input.fill('');
+  const afterClear = await scans();
+  await preview.fill('needle third');
+  await expect(page.locator('.cm-content')).toContainText('needle third');
+  expect(await scans()).toBe(afterClear);
+  await input.fill('needle');
+  await input.press('Escape');
+  const afterClose = await scans();
+  await preview.fill('needle fourth');
+  await expect(page.locator('.cm-content')).toContainText('needle fourth');
+  expect(await scans()).toBe(afterClose);
+});
+
+test('resets preview search when switching workspaces with identical document paths', async ({ page }) => {
+  await page.goto('/workspace');
+  await expect(page.locator('.cm-content')).toBeVisible();
+  await page.getByRole('button', { name: /新規 WS/ }).click();
+  const name = page.locator('#text-input-dialog-value');
+  await name.fill('Search workspace');
+  await name.press('Enter');
+  await expect(page.locator('.cm-content')).toContainText('# Search workspace');
+  const originalPath = await page.locator('.document-chip').textContent();
+  await page.locator('.preview-content').press('Control+f');
+  await page.getByLabel('プレビュー内の検索語').fill('workspace');
+  await expect(page.getByRole('search')).toBeVisible();
+  await page.getByRole('button', { name: /コマンド/ }).click();
+  await page.getByRole('button', { name: 'ワークスペースを開く', exact: true }).click();
+  await page.getByRole('combobox', { name: 'ワークスペース ID' }).selectOption('default');
+  await page.getByRole('dialog').getByRole('button', { name: '開く', exact: true }).click();
+  await expect(page.locator('.document-chip')).toHaveText(originalPath ?? '');
+  await expect(page.locator('.cm-content')).not.toContainText('# Search workspace');
+  await expect(page.getByRole('search')).toHaveCount(0);
+});
+
+for (const width of [1280, 390]) {
+  test(`keeps preview search below the toolbar when scrolled at width ${width}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/workspace');
+    const source = page.locator('.cm-content');
+    await expect(source).toBeVisible();
+    await source.fill(Array.from({ length: 80 }, (_, index) => `Paragraph ${index} needle`).join('\n\n'));
+    await page.getByRole('button', { name: 'Preview', exact: true }).click();
+    await page.locator('.preview-content').press('Control+f');
+    await page.getByLabel('プレビュー内の検索語').fill('needle');
+    await expect(page.getByRole('search').locator('output')).toHaveText('1 / 80');
+    await page.locator('.preview-pane').evaluate((pane) => { pane.scrollTop = pane.scrollHeight; });
+    await expect.poll(async () => {
+      const toolbar = await page.locator('.preview-editor-bar').boundingBox();
+      const search = await page.locator('.markdown-preview > .document-search').boundingBox();
+      return toolbar && search ? search.y - (toolbar.y + toolbar.height) : -100;
+    }).toBeGreaterThanOrEqual(-1);
+    await page.getByRole('search').getByRole('button', { name: '次の一致' }).click();
+    await expect(page.getByRole('search').locator('output')).toHaveText('2 / 80');
+    await page.screenshot({ path: testInfo.outputPath(`sticky-search-${width}.png`) });
+  });
+}

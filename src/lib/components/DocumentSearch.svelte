@@ -106,6 +106,12 @@
           if (match) view.dispatch({ effects: EditorView.scrollIntoView(match.from, { y: "center" }) });
         };
       } else if (previewTarget) {
+        if (!search) {
+          clearPreview();
+          count = 0;
+          moveTo = undefined;
+          return;
+        }
         const host = previewTarget;
         const update = () => {
           const ranges = previewSearchRanges(host, search);
