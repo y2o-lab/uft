@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DocumentSearch from "./DocumentSearch.svelte";
   import { onMount, tick } from "svelte";
   import MarkdownFormattingToolbar from "./MarkdownFormattingToolbar.svelte";
   import { renderMermaid } from "../markdown/mermaid";
@@ -8,7 +9,7 @@
   import { setTaskChecked } from "../markdown/task-list";
   import type { MarkdownFormat } from "../markdown/formatting";
   let { markdown = "", assetUrls = {}, documentPath = "docs/overview.md", canEdit = false, onChange = () => undefined }: { markdown?: string; assetUrls?: Record<string, string>; documentPath?: string; canEdit?: boolean; onChange?: (markdown: string) => void } = $props();
-  let html = $state(""); let host: HTMLElement; let renderVersion = 0; let editing = $state(false); let lastEmittedMarkdown: string | null = null; let activeFormats = $state(new Set<MarkdownFormat>()); let savedRange: Range | null = null;
+  let html = $state(""); let host = $state<HTMLElement>(undefined!); let renderVersion = 0; let editing = $state(false); let lastEmittedMarkdown: string | null = null; let activeFormats = $state(new Set<MarkdownFormat>()); let savedRange: Range | null = null;
   let draggedItem: HTMLLIElement | null = null;
   let dropTarget: HTMLLIElement | null = null;
   let dropAfter = false;
@@ -279,11 +280,12 @@
     }, 0);
   }
 </script>
-<div class="markdown-preview">
+<div class="markdown-preview document-search-scope">
   <div class="preview-editor-bar">
     <MarkdownFormattingToolbar active={activeFormats} disabled={!canEdit} onFormat={formatPreview} />
     {#if editing}<span class="preview-editing-note">Markdown に自動反映</span>{/if}
     {#if canEdit}<button type="button" class="preview-edit-toggle" class:active={editing} aria-pressed={editing} onclick={() => editing ? stopEditing() : editing = true}>{editing ? "編集を終了" : "プレビューを編集"}</button>{/if}
   </div>
+  <DocumentSearch target={host} revision={html} documentKey={documentPath} label="プレビュー" />
   <div class:editing class="preview-content" bind:this={host} contenteditable={editing} role="textbox" aria-multiline="true" aria-readonly={!editing} tabindex="0" aria-label={editing ? "編集可能な Markdown プレビュー" : "Markdown プレビュー"} spellcheck={editing} oninput={handleInput} onchange={handleTaskChange} onkeydown={previewKeydown} ondragstart={startListDrag} ondragover={overListItem} ondrop={dropListItem} ondragend={clearListDrag} onpointerdown={(event) => pointerStart = { x: event.clientX, y: event.clientY }} onclick={selectPreviewLine}>{@html html}</div>
 </div>

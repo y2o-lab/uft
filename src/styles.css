@@ -351,3 +351,19 @@
 .preview-content table {
   table-layout: fixed;
 }
+
+/* Document search remains outside editable content and never changes Markdown. */
+.markdown-source-editor { grid-template-rows: auto auto minmax(0, 1fr); }
+.document-search { padding: 4px 10px; border-bottom: 1px solid #e3e7e0; background: #f8faf5; }
+.markdown-preview > .document-search { position: sticky; top: 0; z-index: 3; }
+.document-search-trigger { border: 0; background: transparent; color: #596b55; padding: 3px 6px; font-size: 12px; }
+.document-search-trigger kbd { margin-left: 6px; color: #7d857a; font-size: 10px; }
+.document-search-controls { display: flex; align-items: center; gap: 5px; }
+.document-search-controls input { min-width: 0; flex: 1; width: 100%; padding: 5px 8px; border: 1px solid #c9d4c3; border-radius: 4px; background: white; font-size: 13px; }
+.document-search-controls output { flex-shrink: 0; font-size: 11px; color: #596b55; }
+.document-search-controls button { flex-shrink: 0; padding: 3px 7px; border: 1px solid #d8dfd2; border-radius: 4px; background: white; color: #3f513a; }
+.document-match { background: #ffe8a0; color: #332900; }
+.document-match-active { background: #f5b841; outline: 1px solid #916200; }
+::highlight(uft-find-preview) { background: #ffe8a0; color: #332900; }
+::highlight(uft-find-preview-active) { background: #f5b841; color: #332900; }
+@media print { .document-search { display: none; } }
