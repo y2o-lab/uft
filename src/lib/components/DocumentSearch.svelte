@@ -25,6 +25,7 @@
   const documentIdentity = $derived(documentKey);
   let lastText: string | undefined;
   let lastQuery: string | undefined;
+  let decoratedEditor: EditorView | undefined;
   const highlightName = $derived(`uft-find-${label === "エディタ" ? "source" : "preview"}`);
   type HighlightRegistry = { set: (name: string, value: unknown) => void; delete: (name: string) => void };
   const highlights = () => (CSS as unknown as { highlights?: HighlightRegistry }).highlights;
@@ -84,10 +85,26 @@
     editor.dispatch({ effects: StateEffect.appendConfig.of(compartment.of([])) });
   });
   $effect(() => {
-    const text = content;
     const search = open ? query : "";
     const viewTarget = editor;
     const previewTarget = target;
+    if (!search) {
+      // Do not subscribe to content updates while search is inactive. Remove
+      // the computed decoration provider once so normal edits do no search work.
+      untrack(() => {
+        updateMatches = undefined;
+        count = 0;
+        current = 0;
+        lastText = undefined;
+        lastQuery = "";
+        clearPreview();
+        if (viewTarget && decoratedEditor === viewTarget)
+          viewTarget.dispatch({ effects: compartment.reconfigure([]) });
+        decoratedEditor = undefined;
+      });
+      return;
+    }
+    const text = content;
     return untrack(() => {
       // Saving can replace the workspace object without changing its text.
       // Preserve the active result across those updates.
@@ -99,6 +116,7 @@
         count = matches.length;
         const view = viewTarget;
         updateMatches = (index, scroll) => {
+          decoratedEditor = view;
           view.dispatch({ effects: compartment.reconfigure(
             EditorView.decorations.compute(["doc"], (state) => Decoration.set(
               findTextMatches(state.doc.toString(), search).map((match, position) =>
@@ -110,12 +128,6 @@
           if (match && scroll) view.dispatch({ effects: EditorView.scrollIntoView(match.from, { y: "center" }) });
         };
       } else if (previewTarget) {
-        if (!search) {
-          clearPreview();
-          count = 0;
-          updateMatches = undefined;
-          return;
-        }
         const host = previewTarget;
         const update = () => {
           const ranges = previewSearchRanges(host, search);

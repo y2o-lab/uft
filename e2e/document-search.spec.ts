@@ -259,7 +259,7 @@ test('keeps the source editing position while updating search matches', async ({
   await input.fill('needle');
   await expect(search.locator('output')).toHaveText('1 / 1');
   await source.focus();
-  await source.press('Meta+End');
+  await source.press('ControlOrMeta+End');
   const scroller = page.locator('.cm-scroller');
   await expect.poll(() => scroller.evaluate((node) => node.scrollTop)).toBeGreaterThan(1000);
   const before = await scroller.evaluate((node) => node.scrollTop);
@@ -311,4 +311,56 @@ test('keeps the preview editing position while updating search matches', async (
   await expect(search.locator('output')).toHaveText('2 / 2');
   await search.getByRole('button', { name: '前の一致' }).click();
   await expect.poll(() => pane.evaluate((node) => node.scrollTop)).toBeLessThan(200);
+});
+
+test('does not reconfigure source search decorations while search is inactive', async ({ page }) => {
+  await page.goto('/workspace');
+  const source = page.locator('.cm-content');
+  await expect(source).toBeVisible();
+  await page.evaluate(async () => {
+    const { EditorView } = await import('/node_modules/@codemirror/view/dist/index.js');
+    const view = EditorView.findFromDOM(document.querySelector('.cm-editor')!);
+    if (!view) throw new Error('Source editor is not ready');
+    const original = view.update.bind(view);
+    let reconfigurations = 0;
+    view.update = (transactions) => {
+      reconfigurations += transactions.filter((transaction) => transaction.reconfigured).length;
+      original(transactions);
+    };
+    Object.defineProperty(window, '__sourceSearchReconfigurations', { get: () => reconfigurations });
+  });
+  const reconfigurations = () => page.evaluate(() => (window as unknown as { __sourceSearchReconfigurations: number }).__sourceSearchReconfigurations);
+  await source.fill('needle first');
+  await expect(page.locator('.preview-content')).toContainText('needle first');
+  expect(await reconfigurations()).toBe(0);
+  await page.getByRole('button', { name: 'エディタ内を検索', exact: true }).click();
+  const input = page.getByLabel('エディタ内の検索語');
+  await source.fill('needle second');
+  await expect(page.locator('.preview-content')).toContainText('needle second');
+  expect(await reconfigurations()).toBe(0);
+  await input.fill('needle');
+  await expect(page.locator('.document-match')).toHaveCount(1);
+  const active = await reconfigurations();
+  expect(active).toBeGreaterThan(0);
+  await input.fill('');
+  await expect(page.locator('.document-match')).toHaveCount(0);
+  expect(await reconfigurations()).toBe(active + 1);
+  const cleared = await reconfigurations();
+  await source.fill('needle third');
+  await expect(page.locator('.preview-content')).toContainText('needle third');
+  expect(await reconfigurations()).toBe(cleared);
+  await input.fill('needle');
+  await expect(page.locator('.document-match')).toHaveCount(1);
+  const reopened = await reconfigurations();
+  await input.press('Escape');
+  await expect(page.getByRole('search')).toHaveCount(0);
+  await expect(page.locator('.document-match')).toHaveCount(0);
+  expect(await reconfigurations()).toBe(reopened + 1);
+  const closed = await reconfigurations();
+  await source.fill('needle fourth');
+  await expect(page.locator('.preview-content')).toContainText('needle fourth');
+  expect(await reconfigurations()).toBe(closed);
+  await page.getByRole('button', { name: 'エディタ内を検索', exact: true }).click();
+  await expect(page.locator('.document-match')).toHaveCount(1);
+  expect(await reconfigurations()).toBeGreaterThan(closed);
 });
