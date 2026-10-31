@@ -25,7 +25,7 @@
     "@codemirror/state": "6.7.6",
     "@codemirror/view": "6.43.15",
     "@firecrawl/anydoc-wasm": "0.1.9",
-    "@lucide/svelte": "1.60.0",
+    "@lucide/svelte": "1.62.0",
     "@sqlite.org/sqlite-wasm": "3.51.2-build9",
     "@xyflow/svelte": "1.7.0",
     "fflate": "0.8.3",
@@ -35,13 +35,13 @@
     "remark-gfm": "4.0.1",
     "remark-parse": "11.0.0",
     "remark-rehype": "11.1.2",
-    "svelte": "5.57.2",
+    "svelte": "5.57.3",
     "turndown": "7.2.4",
     "turndown-plugin-gfm": "1.0.2",
     "unified": "11.0.5"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.15",
+    "@biomejs/biome": "2.6.3",
     "@playwright/test": "1.64.1",
     "@sveltejs/vite-plugin-svelte": "6.2.4",
     "@tsconfig/svelte": "5.0.8",
@@ -50,7 +50,7 @@
     "svelte-check": "4.7.7",
     "typescript": "5.9.3",
     "vite": "7.3.7",
-    "vitest": "4.1.11",
-    "wrangler": "4.151.3"
+    "vitest": "4.1.12",
+    "wrangler": "4.154.0"
   }
 }
