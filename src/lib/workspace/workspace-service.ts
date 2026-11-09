@@ -141,7 +141,13 @@ export function updateDocument(
   if (entry.kind !== "markdown")
     throw new Error("Markdown 文書ではありません。");
   const previous = workspace.documents[entryId];
-  const timestamp = now();
+  const lastUpdatedAt =
+    previous && previous.updatedAt > entry.updatedAt
+      ? previous.updatedAt
+      : entry.updatedAt;
+  const timestamp = Number.isFinite(Date.parse(lastUpdatedAt))
+    ? nextUpdatedAt(lastUpdatedAt)
+    : now();
   workspace.documents[entryId] = {
     entryId,
     content,

@@ -1,0 +1,7 @@
+overrides:
+  # GHSA-gcqx-w48m-w2h4. Remove with the plugin patch once upstream ships the replacement.
+  '@sveltejs/vite-plugin-svelte@6.2.4>deepmerge': '-'
+  # GHSA-238p-pmpm-9mq7. Mermaid 11 still declares KaTeX 0.16.
+  'mermaid@11.17.2>katex': 0.18.10
+patchedDependencies:
+  '@sveltejs/vite-plugin-svelte@6.2.4': patches/@sveltejs__vite-plugin-svelte@6.2.4.patch

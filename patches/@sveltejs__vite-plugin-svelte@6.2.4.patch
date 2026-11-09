@@ -1,0 +1,59 @@
+diff --git a/src/utils/options.js b/src/utils/options.js
+index f099b31888c505526d4e77b78bb73a194712ddf8..c94069a453fa2ef3bc36dfab0544b9aee7d36be3 100644
+--- a/src/utils/options.js
++++ b/src/utils/options.js
+@@ -22,7 +22,6 @@ import {
+ 
+ import path from 'node:path';
+ import { addExtraPreprocessors } from './preprocess.js';
+-import deepmerge from 'deepmerge';
+ import {
+ 	crawlFrameworkPkgs,
+ 	isDepExcluded,
+@@ -171,20 +170,36 @@ export async function preResolveOptions(inlineOptions, viteUserConfig, viteEnv)
+ }
+ 
+ /**
+- * @template T
+- * @param  {(Partial<T> | undefined)[]} configs
+- * @returns T
++ * @param {unknown} value
++ * @returns {value is Record<string, any>}
++ */
++function isPlainObject(value) {
++	if (!value || typeof value !== 'object') return false;
++	const proto = Object.getPrototypeOf(value);
++	return proto === Object.prototype || proto === null;
++}
++
++/**
++ * Based on https://github.com/sveltejs/vite-plugin-svelte/pull/1415.
++ * Merge plain objects recursively. Later values replace arrays and other values.
++ *
++ * @param {(Record<string, any> | null | undefined)[]} configs
++ * @returns {Record<string, any>}
+  */
+ function mergeConfigs(...configs) {
+-	/** @type {Partial<T>} */
++	/** @type {Record<string, any>} */
+ 	let result = {};
+-	for (const config of configs.filter((x) => x != null)) {
+-		result = deepmerge(result, /** @type {Partial<T>} */ (config), {
+-			// replace arrays
+-			arrayMerge: (target, source) => source ?? target
+-		});
++	for (const config of configs) {
++		if (!config) continue;
++		const nested = Object.entries(config)
++			.filter(([, value]) => isPlainObject(value))
++			.map(([key, value]) => {
++				const previous = Object.hasOwn(result, key) ? result[key] : undefined;
++				return [key, mergeConfigs(isPlainObject(previous) ? previous : undefined, value)];
++			});
++		result = { ...result, ...config, ...Object.fromEntries(nested) };
+ 	}
+-	return /** @type {T} */ result;
++	return result;
+ }
+ 
+ /**

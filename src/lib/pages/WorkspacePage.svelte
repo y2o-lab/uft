@@ -37,6 +37,7 @@ import ConfirmDialog from "../components/ConfirmDialog.svelte";
 import DocumentImportPanel from "../components/DocumentImportPanel.svelte";
 import TextInputDialog from "../components/TextInputDialog.svelte";
 import MarkdownPreview from "../components/MarkdownPreview.svelte";
+import TaskTemplateShortcuts from "../components/TaskTemplateShortcuts.svelte";
 import MarkdownDiff from "../components/MarkdownDiff.svelte";
 import Toast from "../components/Toast.svelte";
 import ErrorPage from "../components/ErrorPage.svelte";
@@ -1176,7 +1177,7 @@ function closeLauncher(): void {
       <div class="sidebar-actions"><button aria-label="名前変更" title="名前変更" onclick={rename} disabled={!activeEntry}><Pencil aria-hidden="true" /></button><button aria-label="削除" title="削除" onclick={() => deleteTarget = activeEntry} disabled={!activeEntry}><Trash2 aria-hidden="true" /></button></div>
     </aside>
     <section class="main-pane">
-      <div class="editor-toolbar"><div class="mode-switch"><button class:selected={mode === "source"} onclick={() => mode = "source"} disabled={!activeDocument}>Source</button><button class:selected={mode === "split"} onclick={() => mode = "split"} disabled={!activeDocument}>Split</button><button class:selected={mode === "preview"} onclick={() => mode = "preview"} disabled={!activeDocument}>Preview</button><button class:selected={mode === "diff"} onclick={openDiff} disabled={!activeDocument}>Diff</button></div>{#if mode === "diff" && comparisonEntries.length}<div class="diff-selector"><span>比較元</span><button bind:this={comparisonPickerButton} type="button" class="diff-selector-trigger" aria-label={`比較元: ${compareEntry?.path ?? "未選択"}`} aria-haspopup="listbox" aria-expanded={comparisonPickerOpen} onclick={toggleComparisonPicker}><span>{compareEntry?.path ?? "文書を選択"}</span><ChevronDown aria-hidden="true" /></button>{#if comparisonPickerOpen}<div class="diff-picker-popover"><input bind:this={comparisonSearchInput} bind:value={comparisonQuery} aria-label="比較元を検索" aria-controls="comparison-picker-results" aria-activedescendant={matchingComparisonEntries[comparisonActiveIndex] ? `comparison-option-${matchingComparisonEntries[comparisonActiveIndex].id}` : undefined} placeholder="文書を検索…" autocomplete="off" oninput={() => comparisonActiveIndex = 0} onkeydown={handleComparisonSearchKeydown} /><div id="comparison-picker-results" class="diff-picker-results" role="listbox" aria-label="比較元の候補">{#each matchingComparisonEntries as entry, index (entry.id)}<button id={`comparison-option-${entry.id}`} type="button" role="option" class:active={index === comparisonActiveIndex} aria-selected={entry.id === compareEntryId} onmouseenter={() => comparisonActiveIndex = index} onclick={() => chooseComparisonEntry(entry.id)}>{entry.path}</button>{:else}<p>一致する Markdown 文書はありません。</p>{/each}</div></div>{/if}</div>{/if}<span class:error-text={statusTone === "error"} class="status"><span class="local-dot"></span>{status}</span></div>
+      <div class="editor-toolbar"><div class="mode-switch"><button class:selected={mode === "source"} onclick={() => mode = "source"} disabled={!activeDocument}>Source</button><button class:selected={mode === "split"} onclick={() => mode = "split"} disabled={!activeDocument}>Split</button><button class:selected={mode === "preview"} onclick={() => mode = "preview"} disabled={!activeDocument}>Preview</button><button class:selected={mode === "diff"} onclick={openDiff} disabled={!activeDocument}>Diff</button></div>{#if activeMarkdown && mode !== "diff" && canWrite()}<TaskTemplateShortcuts content={activeMarkdown.document.content} onInsert={editDocument} />{/if}{#if mode === "diff" && comparisonEntries.length}<div class="diff-selector"><span>比較元</span><button bind:this={comparisonPickerButton} type="button" class="diff-selector-trigger" aria-label={`比較元: ${compareEntry?.path ?? "未選択"}`} aria-haspopup="listbox" aria-expanded={comparisonPickerOpen} onclick={toggleComparisonPicker}><span>{compareEntry?.path ?? "文書を選択"}</span><ChevronDown aria-hidden="true" /></button>{#if comparisonPickerOpen}<div class="diff-picker-popover"><input bind:this={comparisonSearchInput} bind:value={comparisonQuery} aria-label="比較元を検索" aria-controls="comparison-picker-results" aria-activedescendant={matchingComparisonEntries[comparisonActiveIndex] ? `comparison-option-${matchingComparisonEntries[comparisonActiveIndex].id}` : undefined} placeholder="文書を検索…" autocomplete="off" oninput={() => comparisonActiveIndex = 0} onkeydown={handleComparisonSearchKeydown} /><div id="comparison-picker-results" class="diff-picker-results" role="listbox" aria-label="比較元の候補">{#each matchingComparisonEntries as entry, index (entry.id)}<button id={`comparison-option-${entry.id}`} type="button" role="option" class:active={index === comparisonActiveIndex} aria-selected={entry.id === compareEntryId} onmouseenter={() => comparisonActiveIndex = index} onclick={() => chooseComparisonEntry(entry.id)}>{entry.path}</button>{:else}<p>一致する Markdown 文書はありません。</p>{/each}</div></div>{/if}</div>{/if}<span class:error-text={statusTone === "error"} class="status"><span class="local-dot"></span>{status}</span></div>
       {#if activeMarkdown}
         {#if mode === "diff"}
           <section class="diff-pane" aria-label="Markdown comparison">
@@ -1190,7 +1191,20 @@ function closeLauncher(): void {
         {:else}
           <div class:source-only={mode === "source"} class:preview-only={mode === "preview"} class="document-area">
             {#if mode !== "preview"}<section class="source-pane">{#key activeMarkdown.entry.id}<CodeMirrorEditor value={activeMarkdown.document.content} documentKey={`${workspace?.id}:${activeMarkdown.entry.id}`} onChange={editDocument} onReady={setEditorInsertionHandler} />{/key}<output class="markdown-character-count" data-testid="markdown-character-count" aria-live="polite">文字数: {markdownCharacterCount.toLocaleString()}（改行を含む）</output></section>{/if}
-            {#if mode !== "source"}<section class="preview-pane"><MarkdownPreview markdown={activeMarkdown.document.content} {assetUrls} documentPath={activeMarkdown.entry.path} documentKey={`${workspace?.id}:${activeMarkdown.entry.id}`} canEdit={canWrite()} onChange={editDocument} /></section>{/if}
+            {#if mode !== "source"}
+              <section class="preview-pane">
+                {#key `${workspace?.id}:${activeMarkdown.entry.id}`}
+                  <MarkdownPreview
+                    markdown={activeMarkdown.document.content}
+                    {assetUrls}
+                    documentPath={activeMarkdown.entry.path}
+                    documentKey={`${workspace?.id}:${activeMarkdown.entry.id}`}
+                    canEdit={canWrite()}
+                    onChange={editDocument}
+                  />
+                {/key}
+              </section>
+            {/if}
           </div>
         {/if}
       {:else if activeEntry?.kind === "diagram" && activeDiagram}

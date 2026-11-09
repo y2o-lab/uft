@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
+import { TASK_BOARD_LANGUAGE, taskBoardBlocks } from "./task-board";
 
 const schema = {
   ...defaultSchema,
@@ -30,18 +31,30 @@ const schema = {
   },
 } as Parameters<typeof rehypeSanitize>[0];
 
+const renderer = unified()
+  .use(remarkParse)
+  .use(remarkGfm)
+  .use(remarkRehype, { allowDangerousHtml: false })
+  .use(rehypeSanitize, schema)
+  .use(rehypeStringify)
+  .freeze();
+
+export async function renderMarkdownPreview(markdown: string) {
+  const tree = renderer.parse(markdown);
+  const taskBoards = markdown.includes(TASK_BOARD_LANGUAGE)
+    ? taskBoardBlocks(tree)
+    : [];
+  const html = renderer
+    .stringify(await renderer.run(tree))
+    .replace(
+      /<a href="(https?:[^"]+)"/g,
+      '<a href="$1" target="_blank" rel="noopener noreferrer"',
+    );
+  return { html, taskBoards };
+}
+
 export async function renderMarkdown(markdown: string): Promise<string> {
-  const result = await unified()
-    .use(remarkParse)
-    .use(remarkGfm)
-    .use(remarkRehype, { allowDangerousHtml: false })
-    .use(rehypeSanitize, schema)
-    .use(rehypeStringify)
-    .process(markdown);
-  return String(result).replace(
-    /<a href="(https?:[^"]+)"/g,
-    '<a href="$1" target="_blank" rel="noopener noreferrer"',
-  );
+  return (await renderMarkdownPreview(markdown)).html;
 }
 
 export function mermaidBlocks(

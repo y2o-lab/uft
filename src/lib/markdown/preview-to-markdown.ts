@@ -2,10 +2,10 @@ import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
 
 function fencedCode(source: string, language = ""): string {
-  const longestFence = Math.max(
-    3,
-    ...[...source.matchAll(/`+/g)].map((match) => match[0].length + 1),
-  );
+  let longestFence = 3;
+  for (const match of source.matchAll(/`+/g)) {
+    longestFence = Math.max(longestFence, match[0].length + 1);
+  }
   const fence = "`".repeat(longestFence);
   const body = source.replace(/\n$/, "");
   return `\n\n${fence}${language}\n${body}\n${fence}\n\n`;
@@ -22,9 +22,14 @@ function imageLabel(label: string): string {
     .replaceAll("]", "\\]");
 }
 
+function boardSource(node: HTMLElement): string {
+  return `\n\n${node.dataset.taskBoardSource ?? ""}\n\n`;
+}
+
 function createService(): TurndownService {
   const service = new TurndownService({
     blankReplacement: (_content, node) => {
+      if (node.matches("div[data-task-board-source]")) return boardSource(node);
       if (node.matches("figure[data-mermaid-source]"))
         return fencedCode(node.dataset.mermaidSource ?? "", "mermaid");
       return (node as HTMLElement & { isBlock?: boolean }).isBlock
@@ -50,6 +55,10 @@ function createService(): TurndownService {
   service.addRule("uft-preview-only", {
     filter: (node) => node.matches("[data-preview-only]"),
     replacement: () => "",
+  });
+  service.addRule("uft-task-board", {
+    filter: (node) => node.matches("div[data-task-board-source]"),
+    replacement: (_content, node) => boardSource(node),
   });
   service.addRule("uft-mermaid", {
     filter: (node) => node.matches("figure[data-mermaid-source]"),
