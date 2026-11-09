@@ -34,6 +34,23 @@ async function submitTextInputDialog(page: Page, value: string): Promise<void> {
   await input.press("Enter");
 }
 
+test("uses the full preview pane width in Preview mode", async ({ page }) => {
+  await page.setViewportSize({ width: 2100, height: 900 });
+  await page.goto("/workspace");
+
+  const preview = page.getByRole("textbox", { name: "Markdown プレビュー" });
+  const fillsPane = () =>
+    preview.evaluate(
+      (content) => content.clientWidth === content.closest(".preview-pane")?.clientWidth,
+    );
+
+  await expect.poll(fillsPane).toBe(false);
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  await expect.poll(fillsPane).toBe(true);
+  await page.getByRole("button", { name: "Split", exact: true }).click();
+  await expect.poll(fillsPane).toBe(false);
+});
+
 test("downloads a ZIP backup", async ({ page }) => {
   await page.goto("/workspace");
   await expect(page.locator(".cm-content")).toBeVisible();
