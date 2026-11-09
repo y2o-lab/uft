@@ -299,6 +299,7 @@
 .preview-edit-toggle:hover, .preview-edit-toggle.active { border-color: #6c936b; background: #e4f1e1; color: #27542d; }
 .preview-edit-toggle:focus-visible { outline: 3px solid #d6ead2; outline-offset: 2px; }
 .preview-content { min-height: calc(100% - 41px); }
+.preview-only .preview-content { max-width: none; }
 .preview-content.editing { outline: 0; box-shadow: inset 3px 0 #7fa47c; caret-color: #315f36; }
 .preview-content.editing:focus { background: linear-gradient(90deg, #f5faf2 0, #fffefa 16px); }
 .preview-content.editing a { pointer-events: none; }

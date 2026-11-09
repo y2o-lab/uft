@@ -6,6 +6,7 @@ tone_instructions: >-
   指摘は「問題・起こる影響・具体的な修正案」の順に、原則3文以内で説明してください。
   専門用語には必要な場合だけ短い説明を添え、コード識別子は原文を保ってください。
   根拠のない断定、重複した指摘、長い前置き、好みだけの変更提案は避けてください。
+  影響を受ける操作と再現条件、または根拠となるコードを示してください。
 early_access: false
 
 reviews:
@@ -23,6 +24,7 @@ reviews:
   related_prs: false
   poem: false
   in_progress_fortune: false
+  enable_prompt_for_ai_agents: true
 
   auto_review:
     enabled: true
@@ -37,6 +39,28 @@ reviews:
     - "!**/playwright-report/**"
     - "!**/test-results/**"
     - "!artifacts/**"
+
+  path_instructions:
+    - path: "src/**/*.svelte"
+      instructions: >-
+        Svelte 5 の状態更新とコンポーネントの破棄を確認してください。
+        キーボードとタッチで主要操作が完結するか、フォーカスや入力途中の値が失われないかを確認してください。
+    - path: "src/lib/markdown/**"
+      instructions: >-
+        ソースとプレビューの往復で、操作対象外の Markdown と既存文書の内容が保たれるか確認してください。
+        変換やサニタイズの変更では、コードフェンス、埋め込みデータ、外部入力の扱いを確認してください。
+    - path: "src/lib/{domain,storage,transfer,workspace}/**"
+      instructions: >-
+        旧形式の読み込み、複数タブの同時編集、保存の途中失敗と再試行でデータが失われないか確認してください。
+        ZIP 取り込みではパスとサイズの検証を、保存処理ではローカルファーストの境界を確認してください。
+    - path: "e2e/**"
+      instructions: >-
+        実装の内部状態より、通常の入口から観測できる動作と、該当する失敗条件を検証しているか確認してください。
+        保存や互換性の変更では、再読み込みや旧形式のデータを使った検証を優先してください。
+    - path: ".github/workflows/**"
+      instructions: >-
+        ジョブの権限、トークンの残存範囲、PR 由来の入力がシェルに渡る経路を確認してください。
+        書き込み認証情報が検証処理やフックに渡らないか、外部 Action がコミット SHA で固定されているか確認してください。
 
   # 一律のコメント量ではなく、既存のプロジェクト方針とコードの正しさを評価する。
   pre_merge_checks:

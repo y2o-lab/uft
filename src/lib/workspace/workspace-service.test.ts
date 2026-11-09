@@ -7,6 +7,7 @@ import {
   renameEntry,
   restoreEntries,
   softDeleteEntry,
+  updateDocument,
 } from "./workspace-service";
 import { mergeWorkspaces } from "./workspace-sync";
 
@@ -88,5 +89,17 @@ describe("folder mutations across save merges", () => {
     for (const entry of [folder, nested, file, diagram]) {
       expect(findEntry(restored, entry.id).deletedAt).toBeNull();
     }
+  });
+});
+
+describe("document edits across save merges", () => {
+  it("keeps successive edits even when the clock does not advance", () => {
+    const { workspace, file } = fixture();
+    const firstRevision = updateDocument(workspace, file.id, "First card");
+    const saved = cloneWorkspace(workspace);
+    updateDocument(workspace, file.id, "First and second cards");
+    const reloaded = mergeWorkspaces(saved, workspace);
+    expect(reloaded.documents[file.id].content).toBe("First and second cards");
+    expect(reloaded.documents[file.id].revision).toBe(firstRevision + 1);
   });
 });
