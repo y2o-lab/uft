@@ -44,6 +44,17 @@ describe("editable Markdown preview", () => {
     expect(markdown.endsWith("\n")).toBe(true);
   });
 
+  it("preserves a board source before its controls mount", () => {
+    const preview = document.createElement("div");
+    const widget = document.createElement("div");
+    widget.dataset.taskBoardSource =
+      '```uft-kanban\n{"title":"Release","tasks":[]}\n```';
+    preview.append(widget);
+    expect(previewToMarkdown(preview)).toBe(
+      `${widget.dataset.taskBoardSource}\n`,
+    );
+  });
+
   it("keeps original asset paths and Mermaid source instead of preview output", () => {
     const preview = document.createElement("article");
     preview.innerHTML = `

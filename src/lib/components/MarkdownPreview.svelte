@@ -1,41 +1,165 @@
 <script lang="ts">
+  import { mount, onMount, tick, unmount } from "svelte";
   import DocumentSearch from "./DocumentSearch.svelte";
-  import { onMount, tick } from "svelte";
+  import TaskBoard from "./TaskBoard.svelte";
+  import { TASK_BOARD_LANGUAGE, taskBoardMarkdown } from "../markdown/task-board";
   import MarkdownFormattingToolbar from "./MarkdownFormattingToolbar.svelte";
   import { renderMermaid } from "../markdown/mermaid";
   import { previewToMarkdown } from "../markdown/preview-to-markdown";
-  import { renderMarkdown } from "../markdown/preview";
+  import { renderMarkdownPreview } from "../markdown/preview";
   import { decorateListHandles, moveListItem } from "../markdown/list-reordering";
   import { setTaskChecked } from "../markdown/task-list";
   import type { MarkdownFormat } from "../markdown/formatting";
-  let { markdown = "", assetUrls = {}, documentPath = "docs/overview.md", documentKey = "", canEdit = false, onChange = () => undefined }: { markdown?: string; assetUrls?: Record<string, string>; documentPath?: string; documentKey?: string; canEdit?: boolean; onChange?: (markdown: string) => void } = $props();
-  let html = $state(""); let host = $state<HTMLElement>(undefined!); let renderVersion = 0; let editing = $state(false); let lastEmittedMarkdown: string | null = null; let activeFormats = $state(new Set<MarkdownFormat>()); let savedRange: Range | null = null;
+  let {
+    markdown = "",
+    assetUrls = {},
+    documentPath = "docs/overview.md",
+    documentKey = "",
+    canEdit = false,
+    onChange = () => undefined,
+  }: {
+    markdown?: string;
+    assetUrls?: Record<string, string>;
+    documentPath?: string;
+    documentKey?: string;
+    canEdit?: boolean;
+    onChange?: (markdown: string) => void;
+  } = $props();
+  let rendered = $state.raw({ html: "" });
+  let host = $state<HTMLElement>(undefined!);
   let toolbarHeight = $state(0);
+  let renderVersion = 0;
+  let editing = $state(false);
+  let lastEmittedMarkdown: string | null = null;
+  let activeFormats = $state(new Set<MarkdownFormat>());
+  let savedRange: Range | null = null;
+  type RenderedSource = {
+    markdown: string;
+    taskBoards: Awaited<ReturnType<typeof renderMarkdownPreview>>["taskBoards"];
+  };
+  let renderedSource: RenderedSource | null = null;
+  let renderedAssetUrls: Record<string, string> | undefined;
+  let renderedAssetPath = "";
+  const boards = new Map<HTMLElement, ReturnType<typeof TaskBoard>>();
   let draggedItem: HTMLLIElement | null = null;
   let dropTarget: HTMLLIElement | null = null;
   let dropAfter = false;
   $effect(() => {
-    if (html && host) {
+    if (rendered.html && host) {
       decorateListHandles(host, editing && canEdit);
       clearListDrag();
     }
   });
   let pointerStart: { x: number; y: number } | null = null;
-  $effect(() => { if (editing && markdown === lastEmittedMarkdown) return; void updateHtml(markdown, assetUrls, documentPath); });
+  $effect(() => {
+    const source = markdown;
+    const urls = assetUrls;
+    const path = documentPath;
+    const locallyEdited = editing && source === lastEmittedMarkdown;
+    if (renderedSource && (source === renderedSource.markdown || locallyEdited)) {
+      if (urls !== renderedAssetUrls || path !== renderedAssetPath) hydrateAssetImages(urls, path);
+      return;
+    }
+    void updateHtml(source);
+  });
   $effect(() => { if (!canEdit && editing) editing = false; });
   $effect(() => {
     const disabled = !canEdit;
-    if (!html || !host) return;
+    if (!rendered.html || !host) return;
     for (const checkbox of host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) checkbox.disabled = disabled;
   });
   onMount(() => {
     const onSelectionChange = () => { if (editing) refreshActiveFormats(); };
     document.addEventListener("selectionchange", onSelectionChange);
-    return () => document.removeEventListener("selectionchange", onSelectionChange);
+    return () => {
+      renderVersion += 1;
+      clearBoards();
+      document.removeEventListener("selectionchange", onSelectionChange);
+    };
   });
-  async function updateHtml(source: string, urls: Record<string, string>, path: string): Promise<void> { const version = ++renderVersion; const rendered = await renderMarkdown(source); if (version !== renderVersion) return; html = rendered; await tick(); if (version !== renderVersion) return; hydrateAssetImages(urls, path); void renderDiagrams(version); }
+  async function updateHtml(source: string): Promise<void> {
+    const version = ++renderVersion;
+    const { html, taskBoards } = await renderMarkdownPreview(source);
+    if (version !== renderVersion || source !== markdown) return;
+    clearBoards();
+    lastEmittedMarkdown = null;
+    renderedSource = null;
+    rendered = { html };
+    await tick();
+    if (version !== renderVersion || source !== markdown) return;
+    const snapshot = { markdown: source, taskBoards };
+    renderedSource = snapshot;
+    hydrateAssetImages(assetUrls, documentPath);
+    hydrateBoards(snapshot);
+    void renderDiagrams(version);
+  }
+
+  function clearBoards(detachedOnly = false): void {
+    for (const [widget, board] of boards) {
+      if (detachedOnly && host.contains(widget)) continue;
+      void unmount(board);
+      boards.delete(widget);
+    }
+  }
+
+  function hydrateBoards(snapshot: RenderedSource): void {
+    if (!snapshot.taskBoards.length) return;
+    const nodes = host.querySelectorAll(`:scope > pre > code.language-${TASK_BOARD_LANGUAGE}`);
+    if (snapshot.taskBoards.length !== nodes.length) return;
+    snapshot.taskBoards.forEach((block, index) => {
+      if (!block.board) return;
+      const widget = document.createElement("div");
+      widget.contentEditable = "false";
+      widget.dataset.taskBoardSource = snapshot.markdown.slice(block.from, block.to);
+      nodes[index].parentElement?.replaceWith(widget);
+      boards.set(widget, mount(TaskBoard, {
+        target: widget,
+        props: {
+          initialBoard: block.board,
+          get canEdit() { return canEdit; },
+          onChange(next) {
+            if (!canEdit || renderedSource !== snapshot || !host.contains(widget)) return false;
+            const original = widget.dataset.taskBoardSource ?? "";
+            const replacement = original.includes("\r\n")
+              ? taskBoardMarkdown(next).replaceAll("\n", "\r\n")
+              : taskBoardMarkdown(next);
+            if (markdown !== snapshot.markdown) {
+              // Text editing already changed the DOM and invalidated the source offsets.
+              if (!editing || markdown !== lastEmittedMarkdown) return false;
+              widget.dataset.taskBoardSource = replacement;
+              handleInput();
+              return true;
+            }
+            if (snapshot.markdown.slice(block.from, block.to) !== original) return false;
+            if (replacement === original) return true;
+            const updated = snapshot.markdown.slice(0, block.from) + replacement + snapshot.markdown.slice(block.to);
+            widget.dataset.taskBoardSource = replacement;
+            snapshot.markdown = updated;
+            const delta = replacement.length - original.length;
+            block.to += delta;
+            for (const following of snapshot.taskBoards.slice(index + 1)) {
+              following.from += delta;
+              following.to += delta;
+            }
+            onChange(updated);
+            return true;
+          },
+        },
+      }));
+    });
+  }
   function resolveAssetPath(currentPath: string, reference: string): string { if (/^[a-z]+:|^#|^\//i.test(reference)) return reference; const parts = currentPath.split("/").slice(0, -1); for (const part of reference.split("/")) { if (!part || part === ".") continue; if (part === "..") parts.pop(); else parts.push(part); } const path = parts.join("/"); try { return decodeURIComponent(path); } catch { return path; } }
-  function hydrateAssetImages(urls: Record<string, string>, path: string): void { if (!host) return; for (const image of host.querySelectorAll<HTMLImageElement>("img[src]")) { const source = image.getAttribute("src") ?? ""; image.dataset.markdownSrc = source; const url = urls[resolveAssetPath(path, source)]; if (url) image.src = url; } }
+  function hydrateAssetImages(urls: Record<string, string>, path: string): void {
+    if (!host) return;
+    renderedAssetUrls = urls;
+    renderedAssetPath = path;
+    for (const image of host.querySelectorAll<HTMLImageElement>("img[src]")) {
+      const source = image.dataset.markdownSrc ?? image.getAttribute("src") ?? "";
+      image.dataset.markdownSrc = source;
+      const url = urls[resolveAssetPath(path, source)] ?? source;
+      if (image.getAttribute("src") !== url) image.setAttribute("src", url);
+    }
+  }
   async function renderDiagrams(version: number): Promise<void> { if (!host) return; for (const block of host.querySelectorAll<HTMLElement>("pre > code.language-mermaid")) { const pre = block.parentElement; if (!pre) continue; const source = block.textContent ?? ""; try { const svg = await renderMermaid(source); if (version !== renderVersion || !pre.isConnected) return; const figure = document.createElement("figure"); figure.className = "mermaid-diagram"; figure.setAttribute("role", "img"); figure.setAttribute("aria-label", "Mermaid diagram"); figure.dataset.mermaidSource = source; figure.contentEditable = "false"; figure.innerHTML = svg; pre.replaceWith(figure); } catch (error) { if (version !== renderVersion || !pre.isConnected) return; const message = error instanceof Error ? error.message : "Mermaid 図を描画できません。"; const paragraph = document.createElement("p"); paragraph.className = "diagram-error"; paragraph.dataset.previewOnly = ""; paragraph.setAttribute("role", "alert"); paragraph.textContent = `Mermaid エラー: ${message}`; pre.after(paragraph); } } }
   function selectionElement(): Element | null {
     const selection = window.getSelection();
@@ -175,15 +299,38 @@
     handleInput();
     refreshActiveFormats();
   }
-  function handleInput(event?: Event): void { if (event?.target instanceof HTMLInputElement && event.target.type === "checkbox") return; if (!editing || !host) return; renderVersion += 1; decorateListHandles(host, canEdit); refreshActiveFormats(); const nextMarkdown = previewToMarkdown(host); if (nextMarkdown === lastEmittedMarkdown) return; lastEmittedMarkdown = nextMarkdown; onChange(nextMarkdown); }
+  function handleInput(event?: Event): void {
+    if (event?.target instanceof Element && event.target.closest('[data-task-board-source], input[type="checkbox"]')) return;
+    if (!editing || !host) return;
+    renderVersion += 1;
+    clearBoards(true);
+    decorateListHandles(host, canEdit);
+    refreshActiveFormats();
+    const nextMarkdown = previewToMarkdown(host);
+    if (nextMarkdown === markdown) return;
+    lastEmittedMarkdown = nextMarkdown;
+    onChange(nextMarkdown);
+  }
   function handleTaskChange(event: Event): void {
     const checkbox = event.target;
     if (!canEdit || !(checkbox instanceof HTMLInputElement) || checkbox.type !== "checkbox") return;
-    checkbox.toggleAttribute("checked", checkbox.checked);
-    if (editing) { handleInput(); return; }
+    const snapshot = renderedSource;
+    if (snapshot?.markdown !== markdown) {
+      if (editing && markdown === lastEmittedMarkdown) {
+        checkbox.toggleAttribute("checked", checkbox.checked);
+        handleInput();
+      } else {
+        checkbox.checked = checkbox.defaultChecked;
+      }
+      return;
+    }
     const index = [...host.querySelectorAll('input[type="checkbox"]')].indexOf(checkbox);
-    const nextMarkdown = setTaskChecked(markdown, index, checkbox.checked);
-    if (nextMarkdown !== markdown) onChange(nextMarkdown);
+    const next = setTaskChecked(markdown, index, checkbox.checked);
+    checkbox.toggleAttribute("checked", checkbox.checked);
+    if (next === markdown) return;
+    // GFM toggles replace one character, so board offsets and drafts stay valid.
+    snapshot.markdown = next;
+    onChange(next);
   }
   function clearListDrag(): void {
     draggedItem?.classList.remove("list-dragging");
@@ -231,6 +378,7 @@
     if (moved) { savedRange = null; handleInput(); }
   }
   function previewKeydown(event: KeyboardEvent): void {
+    if (event.target instanceof Element && event.target.closest("[data-task-board-source]")) return;
     const handle = event.target instanceof Element ? event.target.closest("[data-list-handle]") : null;
     if (editing && canEdit && handle && event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
       event.preventDefault();
@@ -265,7 +413,7 @@
     if (!start || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 4) return;
     const target = event.target;
     if (!(target instanceof Element)) return;
-    if (target.closest('input[type="checkbox"], [data-list-handle]')) return;
+    if (target.closest('input[type="checkbox"], [data-list-handle], [data-task-board-source]')) return;
     const line = target.closest("h1, h2, h3, h4, h5, h6, p, li, blockquote, pre, td, th");
     if (!line || !host.contains(line)) return;
     window.setTimeout(() => {
@@ -287,6 +435,6 @@
     {#if editing}<span class="preview-editing-note">Markdown に自動反映</span>{/if}
     {#if canEdit}<button type="button" class="preview-edit-toggle" class:active={editing} aria-pressed={editing} onclick={() => editing ? stopEditing() : editing = true}>{editing ? "編集を終了" : "プレビューを編集"}</button>{/if}
   </div>
-  <DocumentSearch target={host} revision={html} {documentKey} label="プレビュー" />
-  <div class:editing class="preview-content" bind:this={host} contenteditable={editing} role="textbox" aria-multiline="true" aria-readonly={!editing} tabindex="0" aria-label={editing ? "編集可能な Markdown プレビュー" : "Markdown プレビュー"} spellcheck={editing} oninput={handleInput} onchange={handleTaskChange} onkeydown={previewKeydown} ondragstart={startListDrag} ondragover={overListItem} ondrop={dropListItem} ondragend={clearListDrag} onpointerdown={(event) => pointerStart = { x: event.clientX, y: event.clientY }} onclick={selectPreviewLine}>{@html html}</div>
+  <DocumentSearch target={host} revision={rendered.html} {documentKey} label="プレビュー" />
+  <div class:editing class="preview-content" bind:this={host} contenteditable={editing} role="textbox" aria-multiline="true" aria-readonly={!editing} tabindex="0" aria-label={editing ? "編集可能な Markdown プレビュー" : "Markdown プレビュー"} spellcheck={editing} oninput={handleInput} onchange={handleTaskChange} onkeydown={previewKeydown} ondragstart={startListDrag} ondragover={overListItem} ondrop={dropListItem} ondragend={clearListDrag} onpointerdown={(event) => pointerStart = { x: event.clientX, y: event.clientY }} onclick={selectPreviewLine}>{#key rendered}{@html rendered.html}{/key}</div>
 </div>
