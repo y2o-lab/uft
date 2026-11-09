@@ -43,6 +43,17 @@ describe("embedded task boards", () => {
     expect(preview.html).toContain("2026-02-29");
   });
 
+  it.each([
+    "1e400",
+    "9007199254740993",
+    `${"[".repeat(2000)}0${"]".repeat(2000)}`,
+  ])("keeps unsafe extension JSON available as source", async (extension) => {
+    const source = `\`\`\`uft-kanban\n{"title":"Release","tasks":[],"extension":${extension}}\n\`\`\``;
+    const preview = await renderMarkdownPreview(source);
+    expect(preview.taskBoards.map(({ board }) => board)).toEqual([null]);
+    expect(preview.html).toContain(extension);
+  });
+
   it.each(["  ~~~js\r\nexample", "<!-- unfinished"])(
     "keeps a template out of an unclosed block",
     async (unfinished) => {

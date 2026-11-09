@@ -55,6 +55,25 @@ describe("editable Markdown preview", () => {
     );
   });
 
+  it("can serialize a large source-only board with many backtick runs", () => {
+    const preview = document.createElement("div");
+    const pre = document.createElement("pre");
+    const code = document.createElement("code");
+    code.className = "language-uft-kanban";
+    const json = JSON.stringify({
+      version: 2,
+      title: "Unsupported board",
+      tasks: [],
+      extension: "`x".repeat(200_000),
+    });
+    code.textContent = `${json}\n`;
+    pre.append(code);
+    preview.append(pre);
+    expect(previewToMarkdown(preview)).toBe(
+      `\`\`\`uft-kanban\n${json}\n\`\`\`\n`,
+    );
+  });
+
   it("keeps original asset paths and Mermaid source instead of preview output", () => {
     const preview = document.createElement("article");
     preview.innerHTML = `

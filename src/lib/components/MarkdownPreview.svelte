@@ -206,7 +206,9 @@
     }
     if (!host.lastChild) host.append(document.createElement("p"));
     const range = document.createRange();
-    range.selectNodeContents(host.lastChild ?? host);
+    const last = host.lastChild;
+    if (last instanceof HTMLElement && boards.has(last)) range.setStartAfter(last);
+    else range.selectNodeContents(last ?? host);
     range.collapse(false);
     selection.removeAllRanges();
     selection.addRange(range);
@@ -284,7 +286,13 @@
   async function formatPreview(formatName: MarkdownFormat): Promise<void> {
     if (!canEdit) return;
     if (!editing) { editing = true; await tick(); }
-    ensurePreviewSelection();
+    const selection = ensurePreviewSelection();
+    if (!selection?.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    // Formatting a range across a board can wrap its fence in inline markup.
+    for (const widget of boards.keys()) {
+      if (range.intersectsNode(widget)) return;
+    }
     if (formatName === "bold") togglePreviewInline("strong", "太字");
     else if (formatName === "italic") togglePreviewInline("em", "斜体");
     else if (formatName === "strike") togglePreviewInline("del", "取り消し線");

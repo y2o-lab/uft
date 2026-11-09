@@ -2,10 +2,10 @@ import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
 
 function fencedCode(source: string, language = ""): string {
-  const longestFence = Math.max(
-    3,
-    ...[...source.matchAll(/`+/g)].map((match) => match[0].length + 1),
-  );
+  let longestFence = 3;
+  for (const match of source.matchAll(/`+/g)) {
+    longestFence = Math.max(longestFence, match[0].length + 1);
+  }
   const fence = "`".repeat(longestFence);
   const body = source.replace(/\n$/, "");
   return `\n\n${fence}${language}\n${body}\n${fence}\n\n`;

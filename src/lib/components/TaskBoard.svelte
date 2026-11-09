@@ -8,7 +8,7 @@
     canEdit: boolean;
     onChange: (board: TaskBoard) => boolean;
   } = $props();
-  let board = $state(untrack(() => initialBoard));
+  let board = $state.raw(untrack(() => initialBoard));
   const emptyTaskDraft = { text: "", priority: "", dueDate: "" };
   let newTask = $state({ ...emptyTaskDraft });
   let editingIndex = $state<number | null>(null);

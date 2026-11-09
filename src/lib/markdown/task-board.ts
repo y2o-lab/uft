@@ -3,6 +3,7 @@ import remarkParse from "remark-parse";
 import { unified } from "unified";
 
 const markdownParser = unified().use(remarkParse).use(remarkGfm).freeze();
+const MAX_BOARD_JSON_DEPTH = 64;
 
 export const TASK_BOARD_LANGUAGE = "uft-kanban";
 export const taskLanes = [
@@ -44,6 +45,20 @@ function isTaskDueDate(value: unknown): value is string {
   return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
 }
 
+function isSafeBoardJson(value: unknown, depth = 0): boolean {
+  if (depth > MAX_BOARD_JSON_DEPTH) return false;
+  if (typeof value === "number")
+    return (
+      Number.isFinite(value) &&
+      (!Number.isInteger(value) || Number.isSafeInteger(value))
+    );
+  if (value && typeof value === "object")
+    return Object.values(value).every((child) =>
+      isSafeBoardJson(child, depth + 1),
+    );
+  return true;
+}
+
 export function readTaskBoard(value: string): TaskBoard | null {
   try {
     const data: unknown = JSON.parse(value);
@@ -58,6 +73,8 @@ export function readTaskBoard(value: string): TaskBoard | null {
     )
       return null;
     if ("version" in data && data.version !== 1) return null;
+    // Keep source-only boards whose extension data cannot be serialized safely.
+    if (!isSafeBoardJson(data)) return null;
     const tasks: Task[] = [];
     for (const task of data.tasks) {
       const lane = taskLanes.find(({ id }) => id === task?.status);

@@ -1,5 +1,41 @@
 import { expect, test } from "@playwright/test";
 
+test("keeps a kanban board intact when formatting a preview selection", async ({ page }) => {
+  await page.goto("/workspace");
+  const source = page.locator(".cm-content");
+  const preview = page.locator(".preview-content");
+  await source.fill("# リリース計画");
+  await page.getByRole("button", { name: "カンバンを挿入", exact: true }).click();
+  const board = preview.getByRole("region", { name: "リリース準備" });
+  await expect(board).toBeVisible();
+  const original = await source.innerText();
+
+  await page.getByRole("button", { name: "プレビューを編集", exact: true }).click();
+  await preview.press("ControlOrMeta+a");
+  await page.locator(".preview-editor-bar").getByRole("button", { name: "太字", exact: true }).click();
+  await expect.poll(() => source.innerText()).toBe(original);
+  await board.getByLabel("告知文を作る の優先度").selectOption("high");
+  await expect(source).toContainText('"priority": "high"');
+  await expect(preview.locator("strong .board")).toHaveCount(0);
+});
+
+test("renders imported board titles and tasks as literal text", async ({ page }) => {
+  await page.goto("/workspace");
+  const payload = '<img src=x onerror="window.__boardScriptRan = true">';
+  const board = { title: payload, tasks: [{ text: payload, status: "todo" }] };
+  const markdown = ["```uft-kanban", JSON.stringify(board), "```"].join("\n");
+  const source = page.locator(".cm-content");
+  await source.fill(markdown);
+
+  const preview = page.locator(".preview-content");
+  const widget = preview.getByRole("region", { name: payload, exact: true });
+  await expect(widget.getByRole("heading", { name: payload, exact: true })).toBeVisible();
+  await widget.getByLabel(`${payload} の優先度`, { exact: true }).selectOption("high");
+  await expect(source).toContainText('"priority": "high"');
+  await expect(preview.locator("img")).toHaveCount(0);
+  expect(await page.evaluate(() => "__boardScriptRan" in window)).toBe(false);
+});
+
 test("keeps native tasks and embedded boards in the document across preview edits and reload", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.goto("/workspace");
