@@ -116,6 +116,17 @@
     void focusCardControl(index, editControl);
   }
 
+  function handleEditKeydown(event: KeyboardEvent, index: number): void {
+    if (
+      event.key !== "Escape" || event.defaultPrevented || event.repeat
+      || event.isComposing || event.keyCode === 229
+    ) return;
+    if (event.target === dueInput && CSS.supports("selector(:open)") && dueInput?.matches(":open")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    finishEditing(index);
+  }
+
   function removeTask(index: number): void {
     if (commit(board.tasks.filter((_, i) => i !== index))) {
       editingIndex = null;
@@ -192,7 +203,8 @@
           {@const overdue = Boolean(task.dueDate && task.dueDate < today && task.status !== "done")}
           <article class="card" data-task-index={index} class:dragging={draggedIndex === index} ondragstart={(event) => startDrag(event, index)} ondragend={endDrag}>
             {#if editingIndex === index && canEdit}
-              <form class="edit-form" data-preview-only onsubmit={(event) => editTask(event, index)}>
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Escape is delegated from the focused form control) -->
+              <form class="edit-form" data-preview-only onsubmit={(event) => editTask(event, index)} onkeydown={(event) => handleEditKeydown(event, index)}>
                 <input aria-label="タスク名を変更" bind:this={titleInput} bind:value={draft.text} required />
                 <label class="due-field">
                   期限

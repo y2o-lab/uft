@@ -179,6 +179,61 @@ test("switches kanban sort modes without rewriting the source", async ({ page })
   await expect(imagePriority).toBeFocused();
 });
 
+test("closes foreground overlays before cancelling a kanban edit with Escape", async ({ page }) => {
+  await page.goto("/workspace");
+  await page.getByRole("button", { name: "カンバンを挿入", exact: true }).click();
+  const source = page.locator(".cm-content");
+  await expect(source).toContainText("告知文を作る");
+  const original = await source.innerText();
+  const editButton = page.getByRole("button", { name: "告知文を作る を編集", exact: true });
+  await editButton.click();
+  const title = page.getByRole("textbox", { name: "タスク名を変更" });
+  await title.fill("保存前の変更");
+  await title.dispatchEvent("keydown", { key: "Escape", isComposing: true });
+  await expect(title).toHaveValue("保存前の変更");
+
+  await page.keyboard.press("ControlOrMeta+Shift+k");
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  await expect(palette).toBeVisible();
+  await expect(title).toBeFocused();
+  await page.keyboard.press("ControlOrMeta+k");
+  const launcher = page.getByRole("dialog", { name: "ツールランチャー" });
+  await expect(launcher.getByRole("textbox")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(launcher).toBeHidden();
+  await expect(palette).toBeVisible();
+  await expect(title).toBeFocused();
+
+  await page.keyboard.down("Escape");
+  await expect(palette).toBeHidden();
+  await page.keyboard.down("Escape");
+  await expect(title).toHaveValue("保存前の変更");
+  await page.keyboard.up("Escape");
+  await page.keyboard.press("Escape");
+  await expect(title).toBeHidden();
+  await expect(editButton).toBeFocused();
+  await expect.poll(() => source.innerText()).toBe(original);
+});
+
+test("closes the native date picker before cancelling a kanban edit with Escape", async ({ page }) => {
+  await page.goto("/workspace");
+  await page.getByRole("button", { name: "カンバンを挿入", exact: true }).click();
+  const deadline = page.getByRole("button", { name: /告知文を作る の期限を編集/ });
+  await deadline.click();
+  const date = page.locator(".edit-form").getByLabel("期限", { exact: true });
+  await date.fill("2026-11-09");
+  await date.evaluate((input: HTMLInputElement) => input.showPicker());
+  await expect(page.locator('.edit-form input[type="date"]:open')).toHaveCount(1);
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator('.edit-form input[type="date"]:open')).toHaveCount(0);
+  await expect(date).toHaveValue("2026-11-09");
+  await page.keyboard.press("Escape");
+  await expect(date).toBeHidden();
+  await expect(deadline).toBeFocused();
+  await expect(deadline.locator("time")).toHaveCount(0);
+});
+
 test("edits, stores, and clears kanban deadlines from the full-width preview", async ({ browser }) => {
   const page = await browser.newPage({ timezoneId: "Asia/Tokyo" });
   try {
