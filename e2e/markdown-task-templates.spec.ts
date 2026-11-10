@@ -127,6 +127,113 @@ test("keeps native tasks and embedded boards in the document across preview edit
   await expect(search.locator("output")).toHaveText("一致なし");
 });
 
+test("switches kanban sort modes without rewriting the source", async ({ page }) => {
+  await page.goto("/workspace");
+  const source = page.locator(".cm-content");
+  const board = {
+    title: "公開準備",
+    tasks: [
+      { text: "画像", status: "todo", dueDate: "2099-11-01" },
+      { text: "手順", status: "todo", priority: "high" },
+      { text: "公開", status: "todo", priority: "medium", dueDate: "2099-12-31" },
+      { text: "原稿", status: "todo", priority: "low", dueDate: "2099-11-01" },
+      { text: "検証", status: "todo", priority: "high", dueDate: "2100-01-01" },
+      { text: "校正", status: "doing", priority: "high", dueDate: "2099-11-20" },
+      { text: "確認", status: "doing", dueDate: "2099-11-05" },
+    ],
+  };
+  await source.fill(["```uft-kanban", JSON.stringify(board, null, 2), "```"].join("\n"));
+  const original = await source.innerText();
+  const widget = page.getByRole("region", { name: board.title });
+  const sort = widget.getByRole("combobox", { name: "並べ替え", exact: true });
+  const todo = widget.getByRole("region", { name: "未着手", exact: true }).getByRole("button", { name: / を編集$/ });
+  const doing = widget.getByRole("region", { name: "進行中", exact: true }).getByRole("button", { name: / を編集$/ });
+
+  await expect(sort).toHaveValue("priority");
+  await expect(todo).toHaveText(["手順", "検証", "公開", "原稿", "画像"]);
+  await expect(doing).toHaveText(["校正", "確認"]);
+  await page.getByRole("button", { name: "プレビューを編集", exact: true }).click();
+  await sort.selectOption("dueDate");
+  await expect(todo).toHaveText(["画像", "原稿", "公開", "検証", "手順"]);
+  await expect(doing).toHaveText(["確認", "校正"]);
+  await sort.selectOption("priorityThenDueDate");
+  await expect(todo).toHaveText(["検証", "手順", "公開", "原稿", "画像"]);
+  await expect(doing).toHaveText(["校正", "確認"]);
+  await sort.selectOption("priority");
+  await expect(todo).toHaveText(["手順", "検証", "公開", "原稿", "画像"]);
+  await expect(doing).toHaveText(["校正", "確認"]);
+  expect(await source.innerText()).toBe(original);
+
+  await sort.selectOption("priorityThenDueDate");
+  await widget.getByRole("button", { name: /手順 の期限を編集/ }).click();
+  const edit = widget.locator("form.edit-form");
+  await edit.getByLabel("期限", { exact: true }).fill("2099-10-31");
+  await edit.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(todo).toHaveText(["手順", "検証", "公開", "原稿", "画像"]);
+  await expect(source).toContainText('"dueDate": "2099-10-31"');
+
+  const imagePriority = widget.getByRole("combobox", { name: "画像 の優先度", exact: true });
+  await imagePriority.focus();
+  await imagePriority.selectOption("high");
+  await expect(todo).toHaveText(["手順", "画像", "検証", "公開", "原稿"]);
+  await expect(imagePriority).toBeFocused();
+});
+
+test("closes foreground overlays before cancelling a kanban edit with Escape", async ({ page }) => {
+  await page.goto("/workspace");
+  await page.getByRole("button", { name: "カンバンを挿入", exact: true }).click();
+  const source = page.locator(".cm-content");
+  await expect(source).toContainText("告知文を作る");
+  const original = await source.innerText();
+  const editButton = page.getByRole("button", { name: "告知文を作る を編集", exact: true });
+  await editButton.click();
+  const title = page.getByRole("textbox", { name: "タスク名を変更" });
+  await title.fill("保存前の変更");
+  await title.dispatchEvent("keydown", { key: "Escape", isComposing: true });
+  await expect(title).toHaveValue("保存前の変更");
+
+  await page.keyboard.press("ControlOrMeta+Shift+k");
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  await expect(palette).toBeVisible();
+  await expect(title).toBeFocused();
+  await page.keyboard.press("ControlOrMeta+k");
+  const launcher = page.getByRole("dialog", { name: "ツールランチャー" });
+  await expect(launcher.getByRole("textbox")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(launcher).toBeHidden();
+  await expect(palette).toBeVisible();
+  await expect(title).toBeFocused();
+
+  await page.keyboard.down("Escape");
+  await expect(palette).toBeHidden();
+  await page.keyboard.down("Escape");
+  await expect(title).toHaveValue("保存前の変更");
+  await page.keyboard.up("Escape");
+  await page.keyboard.press("Escape");
+  await expect(title).toBeHidden();
+  await expect(editButton).toBeFocused();
+  await expect.poll(() => source.innerText()).toBe(original);
+});
+
+test("closes the native date picker before cancelling a kanban edit with Escape", async ({ page }) => {
+  await page.goto("/workspace");
+  await page.getByRole("button", { name: "カンバンを挿入", exact: true }).click();
+  const deadline = page.getByRole("button", { name: /告知文を作る の期限を編集/ });
+  await deadline.click();
+  const date = page.locator(".edit-form").getByLabel("期限", { exact: true });
+  await date.fill("2026-11-09");
+  await date.evaluate((input: HTMLInputElement) => input.showPicker());
+  await expect(page.locator('.edit-form input[type="date"]:open')).toHaveCount(1);
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator('.edit-form input[type="date"]:open')).toHaveCount(0);
+  await expect(date).toHaveValue("2026-11-09");
+  await page.keyboard.press("Escape");
+  await expect(date).toBeHidden();
+  await expect(deadline).toBeFocused();
+  await expect(deadline.locator("time")).toHaveCount(0);
+});
+
 test("edits, stores, and clears kanban deadlines from the full-width preview", async ({ browser }) => {
   const page = await browser.newPage({ timezoneId: "Asia/Tokyo" });
   try {
