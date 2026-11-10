@@ -20,11 +20,20 @@
   let today = $state(localDate());
   let draggedIndex = $state<number | null>(null);
   let dropLane = $state<TaskStatus | null>(null);
+  let sortBy = $state<"priority" | "dueDate" | "priorityThenDueDate">("priority");
   let completed = $derived(board.tasks.filter((task) => task.status === "done").length);
   const titleId = $props.id();
-  const tasksByPriority = $derived(board.tasks
+  const sortedTasks = $derived(board.tasks
     .map((task, index) => ({ task, index, priority: taskPriorities.findIndex(({ id }) => id === task.priority) }))
-    .sort((a, b) => a.priority - b.priority)
+    .sort((a, b) => {
+      const priorityOrder = a.priority - b.priority;
+      if (sortBy === "priority" || (sortBy === "priorityThenDueDate" && priorityOrder !== 0)) return priorityOrder;
+      const first = a.task.dueDate;
+      const second = b.task.dueDate;
+      if (!first) return second ? 1 : 0;
+      if (!second) return -1;
+      return first.localeCompare(second);
+    })
   );
 
   onMount(() => {
@@ -77,9 +86,12 @@
   }
 
   function setPriority(index: number, control: HTMLSelectElement): void {
+    const focused = document.activeElement === control;
     const priority = taskPriorities.find(({ id }) => id === control.value)?.id;
     if (!commit(board.tasks.map((task, i) => i === index ? { ...task, priority } : task))) {
       control.value = board.tasks[index].priority ?? "";
+    } else if (focused) {
+      void focusCardControl(index, "select.priority");
     }
   }
 
@@ -157,6 +169,14 @@
       <span class="board-icon"><Columns3 size={19} aria-hidden="true" /></span>
       <div><span class="board-label">カンバン</span><h3 id={titleId}>{board.title}</h3></div>
     </div>
+    <label class="sort-control" data-preview-only>
+      並べ替え
+      <select bind:value={sortBy}>
+        <option value="priority">優先度（高い順）</option>
+        <option value="dueDate">期限（近い順）</option>
+        <option value="priorityThenDueDate">優先度 → 期限</option>
+      </select>
+    </label>
     <div class="progress" data-preview-only>
       <span aria-live="polite">{completed} / {board.tasks.length} 件完了</span>
       <progress aria-label="タスクの進捗" value={completed} max={board.tasks.length || 1}></progress>
@@ -165,7 +185,7 @@
 
   <div class="lanes">
     {#each taskLanes as lane (lane.id)}
-      {@const tasks = tasksByPriority.filter(({ task }) => task.status === lane.id)}
+      {@const tasks = sortedTasks.filter(({ task }) => task.status === lane.id)}
       <section class="lane" class:drop-target={dropLane === lane.id} data-lane={lane.id} aria-label={lane.label} ondragover={(event) => allowDrop(event, lane.id)} ondrop={(event) => dropTask(event, lane.id)}>
         <h4><span class="lane-dot"></span>{lane.label}<span class="count">{tasks.length}</span></h4>
         {#each tasks as { task, index, priority } (index)}
@@ -248,6 +268,7 @@
   .board-icon { display: grid; place-items: center; width: 38px; height: 38px; flex-shrink: 0; color: #3c6a42; background: #e3efde; border-radius: 9px; }
   .board-label { display: block; color: #59735b; font-size: 10px; font-weight: 700; letter-spacing: .06em; }
   .board h3 { margin: 2px 0 0; color: #304534; font-size: 17px; line-height: 1.3; }
+  .sort-control { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: #49614b; font-size: 11px; }
   .progress { align-items: stretch; flex-direction: column; gap: 4px; color: #49614b; font-size: 11px; font-variant-numeric: tabular-nums; }
   progress { width: 100%; min-width: 84px; height: 5px; accent-color: #548453; }
   .lanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
@@ -311,12 +332,12 @@
   }
   @media (pointer: coarse) {
     .grip { display: none; }
-    .card-controls select, .card-controls button, .edit-actions button,
+    .sort-control select, .card-controls select, .card-controls button, .edit-actions button,
     .edit-form input, .clear-due, .add-form input, .add-form select, .add-form button { min-height: 44px; }
     .edit-task { min-height: 44px; align-items: center; }
   }
   @media print {
-    .add-form, .card-controls, .grip, .card-title :global(svg) { display: none; }
+    .sort-control, .add-form, .card-controls, .grip, .card-title :global(svg) { display: none; }
     .priority-label.print-only { display: block; }
     .due-summary.print-only { display: inline-flex; }
     .board { break-inside: avoid; }

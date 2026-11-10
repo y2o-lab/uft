@@ -127,6 +127,58 @@ test("keeps native tasks and embedded boards in the document across preview edit
   await expect(search.locator("output")).toHaveText("一致なし");
 });
 
+test("switches kanban sort modes without rewriting the source", async ({ page }) => {
+  await page.goto("/workspace");
+  const source = page.locator(".cm-content");
+  const board = {
+    title: "公開準備",
+    tasks: [
+      { text: "画像", status: "todo", dueDate: "2099-11-01" },
+      { text: "手順", status: "todo", priority: "high" },
+      { text: "公開", status: "todo", priority: "medium", dueDate: "2099-12-31" },
+      { text: "原稿", status: "todo", priority: "low", dueDate: "2099-11-01" },
+      { text: "検証", status: "todo", priority: "high", dueDate: "2100-01-01" },
+      { text: "校正", status: "doing", priority: "high", dueDate: "2099-11-20" },
+      { text: "確認", status: "doing", dueDate: "2099-11-05" },
+    ],
+  };
+  await source.fill(["```uft-kanban", JSON.stringify(board, null, 2), "```"].join("\n"));
+  const original = await source.innerText();
+  const widget = page.getByRole("region", { name: board.title });
+  const sort = widget.getByRole("combobox", { name: "並べ替え", exact: true });
+  const todo = widget.getByRole("region", { name: "未着手", exact: true }).getByRole("button", { name: / を編集$/ });
+  const doing = widget.getByRole("region", { name: "進行中", exact: true }).getByRole("button", { name: / を編集$/ });
+
+  await expect(sort).toHaveValue("priority");
+  await expect(todo).toHaveText(["手順", "検証", "公開", "原稿", "画像"]);
+  await expect(doing).toHaveText(["校正", "確認"]);
+  await page.getByRole("button", { name: "プレビューを編集", exact: true }).click();
+  await sort.selectOption("dueDate");
+  await expect(todo).toHaveText(["画像", "原稿", "公開", "検証", "手順"]);
+  await expect(doing).toHaveText(["確認", "校正"]);
+  await sort.selectOption("priorityThenDueDate");
+  await expect(todo).toHaveText(["検証", "手順", "公開", "原稿", "画像"]);
+  await expect(doing).toHaveText(["校正", "確認"]);
+  await sort.selectOption("priority");
+  await expect(todo).toHaveText(["手順", "検証", "公開", "原稿", "画像"]);
+  await expect(doing).toHaveText(["校正", "確認"]);
+  expect(await source.innerText()).toBe(original);
+
+  await sort.selectOption("priorityThenDueDate");
+  await widget.getByRole("button", { name: /手順 の期限を編集/ }).click();
+  const edit = widget.locator("form.edit-form");
+  await edit.getByLabel("期限", { exact: true }).fill("2099-10-31");
+  await edit.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(todo).toHaveText(["手順", "検証", "公開", "原稿", "画像"]);
+  await expect(source).toContainText('"dueDate": "2099-10-31"');
+
+  const imagePriority = widget.getByRole("combobox", { name: "画像 の優先度", exact: true });
+  await imagePriority.focus();
+  await imagePriority.selectOption("high");
+  await expect(todo).toHaveText(["手順", "画像", "検証", "公開", "原稿"]);
+  await expect(imagePriority).toBeFocused();
+});
+
 test("edits, stores, and clears kanban deadlines from the full-width preview", async ({ browser }) => {
   const page = await browser.newPage({ timezoneId: "Asia/Tokyo" });
   try {
