@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount } from "svelte";
+import { onMount, tick } from "svelte";
 import {
   Archive,
   ArchiveRestore,
@@ -72,6 +72,7 @@ import {
 } from "../workspace/workspace-service";
 import { mergeWorkspaces } from "../workspace/workspace-sync";
 import { createWorkspaceSession } from "../workspace/workspace-session";
+import { registerWorkspaceShortcuts } from "../workspace/workspace-shortcuts";
 import { graphToMermaid, graphToSvg } from "../diagrams/diagram";
 import { DIAGRAM_TEMPLATES, createDiagramTemplate } from "../diagrams/templates";
 import type { Component } from "svelte";
@@ -112,6 +113,7 @@ let statusTone = $state<"info" | "error">("info");
 let toast = $state("");
 let undoDeleteAvailable = $state(false);
 let paletteOpen = $state(false);
+let paletteReturnFocus: HTMLElement | undefined;
 let query = $state("");
 let deleteTarget = $state<WorkspaceEntry | null>(null);
 let textInputRequest = $state<TextInputRequest | null>(null);
@@ -131,7 +133,9 @@ let isIpToolkit = $derived(page === "ip-toolkit");
 let isLauncher = $derived(page === "launcher");
 let isNotFound = $derived(page === "not-found");
 let launcherOpen = $state(false);
+let launcherReturnFocus: HTMLElement | undefined;
 let sidebarOpen = $state(false);
+let sidebarScrim = $state<HTMLButtonElement>();
 let toolLauncher = $state<ToolLauncher>();
 const diagramSaveVersions = new Map<string, number>();
 let DiagramEditor = $state<Component<{ diagram: import("../domain/workspace").DiagramDocument; onChange: (diagram: import("../domain/workspace").DiagramDocument) => void }> | null>(null);
@@ -337,66 +341,55 @@ onMount(() => {
   const boot = isLauncher || isIpToolkit || isNotFound
     ? undefined
     : window.setTimeout(() => void workspaceSession.initialize(), 0);
-  const onKey = (event: KeyboardEvent) => {
-    if (
-      !isLauncher &&
-      !isIpToolkit &&
-      !isNotFound &&
-      (event.metaKey || event.ctrlKey) &&
-      event.altKey &&
-      event.key.toLowerCase() === "n"
-    ) {
-      event.preventDefault();
-      createWorkspace();
-      return;
-    }
-    if (
-      !isLauncher &&
-      !isIpToolkit &&
-      !isNotFound &&
-      (event.metaKey || event.ctrlKey) &&
-      event.key.toLowerCase() === "s"
-    ) {
-      event.preventDefault();
-      void saveNow();
-    }
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-      event.preventDefault();
-      if (!event.shiftKey) {
-        if (isLauncher) toolLauncher?.focusSearch();
-        else openLauncher();
-        return;
-      }
-      if (!isLauncher && !isIpToolkit && !isNotFound) paletteOpen = true;
-    }
-    if (event.key === "Escape") {
-      if (comparisonPickerOpen) {
-        comparisonPickerOpen = false;
-        return;
-      }
-      if (launcherOpen) {
-        closeLauncher();
-        return;
-      }
-      if (sidebarOpen) {
-        sidebarOpen = false;
-        return;
-      }
-      paletteOpen = false;
-      deleteTarget = null;
-    }
-  };
-  window.addEventListener("keydown", onKey);
+  const removeShortcuts = registerWorkspaceShortcuts({
+    canUseWorkspaceCommands: () => !isLauncher && !isIpToolkit && !isNotFound,
+    createWorkspace,
+    save: () => void saveNow(),
+    openLauncher: () => isLauncher ? toolLauncher?.focusSearch() : openLauncher(),
+    openPalette,
+    dismissOverlayOnEscape,
+  });
   const refreshOnFocus = () => void workspaceSession.refreshFromStorage();
   window.addEventListener("focus", refreshOnFocus);
   return () => {
     if (boot) clearTimeout(boot);
-    window.removeEventListener("keydown", onKey);
+    removeShortcuts();
     window.removeEventListener("focus", refreshOnFocus);
     workspaceSession.dispose();
     Object.values(assetUrls).forEach(URL.revokeObjectURL);
   };
 });
+
+function dismissOverlayOnEscape(event: KeyboardEvent): void {
+  if (event.key !== "Escape" || event.defaultPrevented) return;
+  // Handle overlays before the focused control, in their visual stacking order.
+  if (event.repeat) {
+    event.stopPropagation();
+    return;
+  }
+  if (textInputRequest) {
+    textInputRequest = null;
+  } else if (deleteTarget) {
+    deleteTarget = null;
+  } else if (launcherOpen) {
+    const returnFocus = launcherReturnFocus;
+    closeLauncher();
+    void tick().then(() => returnFocus?.focus({ preventScroll: true }));
+  } else if (sidebarOpen && sidebarScrim?.getClientRects().length) {
+    sidebarOpen = false;
+  } else if (paletteOpen) {
+    const returnFocus = paletteReturnFocus;
+    paletteOpen = false;
+    void tick().then(() => returnFocus?.focus({ preventScroll: true }));
+  } else if (mode === "diff" && comparisonPickerOpen && comparisonPickerButton?.getClientRects().length) {
+    comparisonPickerOpen = false;
+    comparisonPickerButton.focus();
+  } else {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+}
 
 $effect(() => {
   if (activeEntry?.kind !== "diagram" || DiagramEditor) return;
@@ -759,10 +752,6 @@ function handleComparisonSearchKeydown(event: KeyboardEvent): void {
     if (selected) chooseComparisonEntry(selected.id);
     return;
   }
-  if (event.key === "Escape") {
-    comparisonPickerOpen = false;
-    comparisonPickerButton?.focus();
-  }
 }
 function scheduleSave(): void {
   if (saveTimer) clearTimeout(saveTimer);
@@ -1087,11 +1076,21 @@ function navigateToDocumentImport(): void {
 }
 
 function openLauncher(): void {
+  if (!launcherOpen) {
+    const focused = document.activeElement;
+    launcherReturnFocus = focused instanceof HTMLElement ? focused : undefined;
+  }
   toolLauncher?.openLauncher();
 }
 
 function closeLauncher(): void {
   toolLauncher?.closeLauncher();
+}
+
+function openPalette(): void {
+  if (paletteOpen) return;
+  paletteReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+  paletteOpen = true;
 }
 
 </script>
@@ -1122,8 +1121,8 @@ function closeLauncher(): void {
       {:else}
         <button class="mobile-only mobile-icon-button" aria-label="文書一覧を開く" aria-controls="workspace-sidebar" aria-expanded={sidebarOpen} onclick={() => sidebarOpen = true}><Menu aria-hidden="true" /></button>
         <button class="mobile-only mobile-icon-button" aria-label="ツールを検索" onclick={openLauncher}><Search aria-hidden="true" /></button>
-        <button class="mobile-only mobile-icon-button" aria-label="コマンドを開く" onclick={() => paletteOpen = true} disabled={!workspace}><Command aria-hidden="true" /></button>
-        <a class="desktop-only top-link button-with-icon" href="/"><House aria-hidden="true" />ホーム</a><button class="desktop-only button-with-icon" onclick={openLauncher}><Search aria-hidden="true" />ツールを検索 <kbd>⌘ K</kbd></button><button class="desktop-only button-with-icon" onclick={createWorkspace} disabled={!repository}><FilePlus aria-hidden="true" />新規 WS <kbd>⌘ ⌥ N</kbd></button><button class="desktop-only button-with-icon" onclick={navigateToDocumentImport}><FileInput aria-hidden="true" />文書を変換</button><button class="desktop-only button-with-icon" onclick={() => paletteOpen = true} disabled={!workspace}><Command aria-hidden="true" />コマンド <kbd>⌘ ⇧ K</kbd></button><button class="desktop-only button-with-icon" onclick={backup} disabled={!workspace}><Download aria-hidden="true" />ZIP バックアップ</button><button class="save-button button-with-icon" aria-label="保存" onclick={saveNow} disabled={!workspace}><Save aria-hidden="true" /><span>保存</span><kbd>⌘ S</kbd></button>
+        <button class="mobile-only mobile-icon-button" aria-label="コマンドを開く" onclick={openPalette} disabled={!workspace}><Command aria-hidden="true" /></button>
+        <a class="desktop-only top-link button-with-icon" href="/"><House aria-hidden="true" />ホーム</a><button class="desktop-only button-with-icon" onclick={openLauncher}><Search aria-hidden="true" />ツールを検索 <kbd>⌘ K</kbd></button><button class="desktop-only button-with-icon" onclick={createWorkspace} disabled={!repository}><FilePlus aria-hidden="true" />新規 WS <kbd>⌘ ⌥ N</kbd></button><button class="desktop-only button-with-icon" onclick={navigateToDocumentImport}><FileInput aria-hidden="true" />文書を変換</button><button class="desktop-only button-with-icon" onclick={openPalette} disabled={!workspace}><Command aria-hidden="true" />コマンド <kbd>⌘ ⇧ K</kbd></button><button class="desktop-only button-with-icon" onclick={backup} disabled={!workspace}><Download aria-hidden="true" />ZIP バックアップ</button><button class="save-button button-with-icon" aria-label="保存" onclick={saveNow} disabled={!workspace}><Save aria-hidden="true" /><span>保存</span><kbd>⌘ S</kbd></button>
       {/if}
     </div>
   </header>
@@ -1138,7 +1137,7 @@ function closeLauncher(): void {
     />
   {:else}
   <section class="workspace">
-    {#if sidebarOpen}<button class="mobile-only sidebar-scrim" aria-label="文書一覧を閉じる" onclick={() => sidebarOpen = false}></button>{/if}
+    {#if sidebarOpen}<button bind:this={sidebarScrim} class="mobile-only sidebar-scrim" aria-label="文書一覧を閉じる" onclick={() => sidebarOpen = false}></button>{/if}
     <aside id="workspace-sidebar" class:mobile-open={sidebarOpen} class="sidebar" aria-label="Explorer">
       <div class="mobile-only mobile-sidebar-heading"><strong>文書一覧</strong><button aria-label="文書一覧を閉じる" onclick={() => sidebarOpen = false}><X aria-hidden="true" /></button></div>
       <div class="sidebar-title"><span>{workspace?.name ?? ""}</span><span><button aria-label="新しい文書" onclick={() => create("markdown")} disabled={!workspace}><FilePlus aria-hidden="true" /></button><button aria-label="新しいフォルダ" onclick={() => create("folder")} disabled={!workspace}><FolderPlus aria-hidden="true" /></button></span></div>
