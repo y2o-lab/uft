@@ -6,5 +6,7 @@ component:
 stories:
   - id: rename-document
     required: true
+  - id: blank-document-name
+    required: true
   - id: select-workspace
     required: true

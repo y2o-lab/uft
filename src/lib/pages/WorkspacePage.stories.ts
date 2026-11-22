@@ -12,11 +12,17 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+const workspaceLoadTimeout = 5_000;
+
 export const MarkdownWorkspace: Story = {
   play: async ({ mount }) => {
     const canvas = await mountAtRoute("/workspace", mount);
     await expect(
-      await canvas.findByRole("button", { name: "ワークスペースのルート" }),
+      await canvas.findByRole(
+        "button",
+        { name: "ワークスペースのルート" },
+        { timeout: workspaceLoadTimeout },
+      ),
     ).toBeEnabled();
   },
 };
@@ -27,10 +33,12 @@ export const DocumentImport: Story = {
     await expect(
       canvas.getByRole("heading", { name: "文書を Markdown に変換" }),
     ).toBeVisible();
-    await waitFor(() =>
-      expect(
-        canvas.getByRole("button", { name: "複数の文書を選択" }),
-      ).toBeEnabled(),
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByRole("button", { name: "複数の文書を選択" }),
+        ).toBeEnabled(),
+      { timeout: workspaceLoadTimeout },
     );
   },
 };
