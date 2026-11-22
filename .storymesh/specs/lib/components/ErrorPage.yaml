@@ -1,0 +1,10 @@
+version: 1
+component:
+  id: lib-components-errorpage
+  name: ErrorPage
+  title: Components/ErrorPage
+stories:
+  - id: not-found
+    required: true
+  - id: retryable-error
+    required: true

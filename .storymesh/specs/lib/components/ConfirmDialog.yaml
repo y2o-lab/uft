@@ -1,0 +1,8 @@
+version: 1
+component:
+  id: lib-components-confirmdialog
+  name: ConfirmDialog
+  title: Components/ConfirmDialog
+stories:
+  - id: delete-document
+    required: true

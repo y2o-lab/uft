@@ -1,0 +1,10 @@
+version: 1
+component:
+  id: root
+  name: Root
+  title: App/Root
+stories:
+  - id: home
+    required: true
+  - id: unexpected-error
+    required: true

@@ -1,0 +1,10 @@
+version: 1
+component:
+  id: lib-components-markdownpreview
+  name: MarkdownPreview
+  title: Components/MarkdownPreview
+stories:
+  - id: read-only
+    required: true
+  - id: editing
+    required: true

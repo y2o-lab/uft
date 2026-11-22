@@ -1,0 +1,10 @@
+version: 1
+component:
+  id: lib-components-toollauncher
+  name: ToolLauncher
+  title: Components/ToolLauncher
+stories:
+  - id: open
+    required: true
+  - id: filtered
+    required: true

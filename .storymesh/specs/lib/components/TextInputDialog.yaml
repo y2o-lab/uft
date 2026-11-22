@@ -1,0 +1,10 @@
+version: 1
+component:
+  id: lib-components-textinputdialog
+  name: TextInputDialog
+  title: Components/TextInputDialog
+stories:
+  - id: rename-document
+    required: true
+  - id: select-workspace
+    required: true

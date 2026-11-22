@@ -1,0 +1,10 @@
+version: 1
+component:
+  id: lib-components-markdowndiff
+  name: MarkdownDiff
+  title: Components/MarkdownDiff
+stories:
+  - id: changed-lines
+    required: true
+  - id: unchanged
+    required: true

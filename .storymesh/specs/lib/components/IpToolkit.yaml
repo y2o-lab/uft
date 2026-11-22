@@ -1,0 +1,10 @@
+version: 1
+component:
+  id: lib-components-iptoolkit
+  name: IpToolkit
+  title: Components/IpToolkit
+stories:
+  - id: lookup
+    required: true
+  - id: cidr-calculator
+    required: true

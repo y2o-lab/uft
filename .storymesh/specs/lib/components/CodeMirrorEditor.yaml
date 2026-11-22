@@ -1,0 +1,10 @@
+version: 1
+component:
+  id: lib-components-codemirroreditor
+  name: CodeMirrorEditor
+  title: Components/CodeMirrorEditor
+stories:
+  - id: editable
+    required: true
+  - id: read-only
+    required: true

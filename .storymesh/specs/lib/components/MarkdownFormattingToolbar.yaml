@@ -1,0 +1,10 @@
+version: 1
+component:
+  id: lib-components-markdownformattingtoolbar
+  name: MarkdownFormattingToolbar
+  title: Components/MarkdownFormattingToolbar
+stories:
+  - id: active-format
+    required: true
+  - id: disabled
+    required: true
