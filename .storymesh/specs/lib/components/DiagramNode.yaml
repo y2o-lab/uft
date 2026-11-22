@@ -1,0 +1,10 @@
+version: 1
+component:
+  id: lib-components-diagramnode
+  name: DiagramNode
+  title: Components/DiagramNode
+stories:
+  - id: process
+    required: true
+  - id: aws-service
+    required: true

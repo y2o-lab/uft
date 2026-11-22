@@ -1,0 +1,10 @@
+version: 1
+component:
+  id: lib-components-toast
+  name: Toast
+  title: Components/Toast
+stories:
+  - id: info
+    required: true
+  - id: save-error
+    required: true

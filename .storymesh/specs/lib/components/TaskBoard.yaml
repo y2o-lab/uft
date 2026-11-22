@@ -1,0 +1,12 @@
+version: 1
+component:
+  id: lib-components-taskboard
+  name: TaskBoard
+  title: Components/TaskBoard
+stories:
+  - id: empty-board
+    required: true
+  - id: read-only-board
+    required: true
+  - id: editable-board
+    required: true

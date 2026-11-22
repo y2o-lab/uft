@@ -1,0 +1,10 @@
+version: 1
+component:
+  id: lib-components-tasktemplateshortcuts
+  name: TaskTemplateShortcuts
+  title: Components/TaskTemplateShortcuts
+stories:
+  - id: insert-todo
+    required: true
+  - id: insert-kanban
+    required: true

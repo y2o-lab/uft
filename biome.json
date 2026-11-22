@@ -2,9 +2,11 @@
   "$schema": "https://biomejs.dev/schemas/2.5.8/schema.json",
   "files": {
     "includes": [
+      ".storybook/**/*.ts",
       "src/**/*.ts",
       "src/**/*.svelte",
       "vite.config.ts",
+      "vitest.config.ts",
       "biome.json"
     ]
   },
@@ -12,17 +14,23 @@
     "indentStyle": "space",
     "indentWidth": 2,
     "includes": [
+      ".storybook/**/*.ts",
       "src/main.tsx",
+      "src/*.stories.ts",
       "src/lib/**/*.ts",
       "vite.config.ts",
+      "vitest.config.ts",
       "biome.json"
     ]
   },
   "assist": {
     "includes": [
+      ".storybook/**/*.ts",
       "src/main.tsx",
+      "src/*.stories.ts",
       "src/lib/**/*.ts",
       "vite.config.ts",
+      "vitest.config.ts",
       "biome.json"
     ]
   },
