@@ -6,3 +6,7 @@ component:
 stories:
   - id: delete-document
     required: true
+  - id: cancel-delete
+    required: true
+  - id: cancel-delete-with-escape
+    required: true

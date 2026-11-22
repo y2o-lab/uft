@@ -47,6 +47,13 @@ jobs:
       - name: Check Storybook specs
         run: pnpm storymesh:check
 
+      - name: Install Chromium for Storybook tests
+        run: pnpm exec playwright install --with-deps --no-shell chromium
+
+      - name: Run Storybook tests
+        timeout-minutes: 5
+        run: pnpm storybook:test
+
       - name: Build Storybook
         run: pnpm storybook:build --quiet
 
