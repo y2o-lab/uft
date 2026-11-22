@@ -26,6 +26,18 @@ PR の日本語レビューには CodeRabbit、JavaScript/TypeScript と GitHub 
 
 Cloudflare Pages では build command に `bun run build`、output directory に `dist` を指定します。
 
+## Storybook と Storymesh
+
+```bash
+pnpm storybook          # コンポーネントをブラウザで開く
+pnpm storybook:build    # 静的プレビューを storybook-static/ に出力する
+pnpm storymesh:check    # Storybook のインデックスを再生成して spec と照合する
+```
+
+必要な UI 状態は `.storymesh/specs/` の YAML で管理します。状態を追加・変更するときは、コンポーネントに隣接する `*.stories.ts` と対応する YAML を更新してください。`component.title` は Storybook の `title` と揃え、各 `stories[].id` は Storybook の表示名を小文字のハイフン区切りにした値を使います。
+
+PR の検証では、必須状態の登録と、各 Svelte コンポーネントにストーリーファイルがあることを確認し、Storybook をビルドします。
+
 ## 保存と配信
 
 UFT は OPFS 上の SQLite を使い、対応しない環境では IndexedDB の互換保存モードへ切り替えます。ユーザーのコンテンツをサーバーへ送信しません。ブラウザのサイトデータを削除するとローカルデータも失われるため、**ZIP バックアップ**を定期的にダウンロードしてください。

@@ -1,0 +1,8 @@
+version: 1
+component:
+  id: app
+  name: App
+  title: App/App
+stories:
+  - id: ip-toolkit
+    required: true

@@ -1,0 +1,10 @@
+version: 1
+component:
+  id: lib-components-diagrameditor
+  name: DiagramEditor
+  title: Components/DiagramEditor
+stories:
+  - id: empty-canvas
+    required: true
+  - id: flow-template
+    required: true

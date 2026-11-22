@@ -1,0 +1,10 @@
+version: 1
+component:
+  id: lib-components-documentsearch
+  name: DocumentSearch
+  title: Components/DocumentSearch
+stories:
+  - id: matches-found
+    required: true
+  - id: no-matches
+    required: true

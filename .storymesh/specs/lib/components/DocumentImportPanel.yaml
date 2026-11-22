@@ -1,0 +1,10 @@
+version: 1
+component:
+  id: lib-components-documentimportpanel
+  name: DocumentImportPanel
+  title: Components/DocumentImportPanel
+stories:
+  - id: ready-to-import
+    required: true
+  - id: workspace-loading
+    required: true

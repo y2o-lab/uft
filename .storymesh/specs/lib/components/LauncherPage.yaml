@@ -1,0 +1,10 @@
+version: 1
+component:
+  id: lib-components-launcherpage
+  name: LauncherPage
+  title: Components/LauncherPage
+stories:
+  - id: available-tools
+    required: true
+  - id: no-results
+    required: true

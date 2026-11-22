@@ -1,0 +1,10 @@
+version: 1
+component:
+  id: lib-pages-workspacepage
+  name: WorkspacePage
+  title: Pages/WorkspacePage
+stories:
+  - id: markdown-workspace
+    required: true
+  - id: document-import
+    required: true

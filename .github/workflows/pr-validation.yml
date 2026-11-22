@@ -44,5 +44,11 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Check Storybook specs
+        run: pnpm storymesh:check
+
+      - name: Build Storybook
+        run: pnpm storybook:build --quiet
+
       - name: Build
         run: pnpm build
