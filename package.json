@@ -29,7 +29,7 @@
     "@codemirror/state": "6.7.6",
     "@codemirror/view": "6.43.15",
     "@firecrawl/anydoc-wasm": "0.1.9",
-    "@lucide/svelte": "1.72.0",
+    "@lucide/svelte": "1.79.0",
     "@sqlite.org/sqlite-wasm": "3.51.2-build9",
     "@xyflow/svelte": "1.7.1",
     "fflate": "0.8.3",
@@ -39,18 +39,18 @@
     "remark-gfm": "4.0.1",
     "remark-parse": "11.0.0",
     "remark-rehype": "11.1.2",
-    "svelte": "5.57.3",
+    "svelte": "5.59.1",
     "turndown": "7.2.5",
     "turndown-plugin-gfm": "1.0.2",
     "unified": "11.0.5"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.6",
-    "@playwright/test": "1.65.0",
+    "@biomejs/biome": "2.6.9",
+    "@playwright/test": "1.65.1",
     "@storybook/addon-vitest": "10.6.8",
     "@storybook/svelte-vite": "10.6.8",
     "@sveltejs/vite-plugin-svelte": "6.2.4",
-    "@tsconfig/svelte": "5.0.8",
+    "@tsconfig/svelte": "5.0.9",
     "@types/turndown": "5.0.6",
     "@vitest/browser-playwright": "4.1.12",
     "jsdom": "26.1.0",
@@ -60,6 +60,6 @@
     "typescript": "5.9.3",
     "vite": "7.3.8",
     "vitest": "4.1.12",
-    "wrangler": "4.160.0"
+    "wrangler": "4.168.0"
   }
 }
